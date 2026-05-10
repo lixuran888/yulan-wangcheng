@@ -46,6 +46,55 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 PERSONA_DIR = BASE_DIR / "storage" / "base_the_ville_clean" / "personas"
 
 NETWORK_SCENARIOS = {
+    "random_network": {
+        "label": "\u968f\u673a\u7f51\u7edc",
+        "model": "Erdos-Renyi Random Graph",
+        "scene_name": "\u964c\u751f\u4eba\u793e\u4f1a\u8206\u8bba\u6837\u677f",
+        "description": "\u6837\u677f\u7248\uff1a\u6bcf\u5bf9\u667a\u80fd\u4f53\u6309\u6982\u7387\u968f\u673a\u8fde\u63a5\uff0c\u7528\u6765\u4f5c\u4e3a\u6ca1\u6709\u719f\u4eba\u5708\u3001\u6ca1\u6709\u793e\u533a\u3001\u6ca1\u6709\u610f\u89c1\u9886\u8896\u7684\u57fa\u7ebf\u5bf9\u7167\u3002\u4eba\u8bbe\u548c\u8bb0\u5fc6\u4ecd\u4f7f\u7528\u539f\u59cb\u5c0f\u9547 Agent\uff0c\u4f46\u8c01\u80fd\u9047\u5230\u8c01\u7531 ER \u968f\u673a\u8fb9\u51b3\u5b9a\u3002",
+        "default_trust": 0.48,
+        "emotion_amplification": 0.45,
+        "alpha_in": 0.72,
+        "alpha_out": 0.72,
+        "bridge_bonus": 1.0,
+        "edge_probability": 0.23,
+    },
+    "small_world_network": {
+        "label": "\u5c0f\u4e16\u754c\u7f51\u7edc",
+        "model": "Watts-Strogatz Small-world Model",
+        "scene_name": "\u719f\u4eba\u5708\u5c42\u8206\u8bba\u6837\u677f",
+        "description": "\u6837\u677f\u7248\uff1a\u5148\u8ba9\u6bcf\u4e2a\u4eba\u8fde\u63a5\u73af\u4e0a\u9644\u8fd1\u7684\u719f\u4eba\uff0c\u518d\u4ee5\u5c11\u91cf\u91cd\u8fde\u8fb9\u5f62\u6210\u6377\u5f84\u3002\u9002\u5408\u8868\u793a\u670b\u53cb\u5708\u3001\u5bb6\u957f\u7fa4\u3001\u5c0f\u9547\u719f\u4eba\u793e\u4f1a\uff1a\u5c40\u90e8\u9ad8\u805a\u96c6\uff0c\u4f46\u6d88\u606f\u4e5f\u53ef\u80fd\u901a\u8fc7\u8fdc\u8ddd\u79bb\u5173\u7cfb\u5feb\u901f\u7834\u5708\u3002",
+        "default_trust": 0.56,
+        "emotion_amplification": 0.52,
+        "alpha_in": 0.90,
+        "alpha_out": 0.62,
+        "bridge_bonus": 1.12,
+        "ring_k": 4,
+        "rewire_probability": 0.18,
+    },
+    "scale_free_network": {
+        "label": "\u65e0\u6807\u5ea6\u7f51\u7edc",
+        "model": "Barabasi-Albert Preferential Attachment Model",
+        "scene_name": "\u610f\u89c1\u9886\u8896\u8206\u8bba\u6837\u677f",
+        "description": "\u6837\u677f\u7248\uff1a\u901a\u8fc7\u504f\u597d\u8fde\u63a5\u751f\u6210 Hub \u8282\u70b9\uff0c\u65b0\u52a0\u5165\u7684\u4eba\u66f4\u5bb9\u6613\u8fde\u5230\u5df2\u7ecf\u5f88\u6709\u5f71\u54cd\u529b\u7684\u4eba\u3002\u9002\u5408\u8868\u793a\u5fae\u535a\u5927V\u3001\u5934\u90e8\u535a\u4e3b\u3001\u610f\u89c1\u9886\u8896\u5bf9\u8206\u8bba\u7684\u653e\u5927\u4f5c\u7528\u3002",
+        "default_trust": 0.52,
+        "emotion_amplification": 0.62,
+        "alpha_in": 0.82,
+        "alpha_out": 0.68,
+        "bridge_bonus": 1.45,
+        "attach_m": 2,
+    },
+    "regular_network": {
+        "label": "\u89c4\u5219\u7f51\u7edc",
+        "model": "Regular Ring Lattice",
+        "scene_name": "\u5c01\u95ed\u90bb\u91cc\u8206\u8bba\u6837\u677f",
+        "description": "\u6837\u677f\u7248\uff1a\u6bcf\u4e2a\u4eba\u53ea\u8fde\u63a5\u73af\u4e0a\u6700\u8fd1\u7684\u51e0\u4e2a\u90bb\u5c45\uff0c\u6ca1\u6709\u660e\u663e\u6377\u5f84\u548c\u8d85\u7ea7\u8282\u70b9\u3002\u9002\u5408\u4f5c\u4e3a\u4f20\u7edf\u6751\u843d\u3001\u5c01\u95ed\u5355\u4f4d\u6216\u4e25\u683c\u5c42\u7ea7\u7ec4\u7ec7\u7684\u7406\u8bba\u5bf9\u7167\uff0c\u89c2\u5bdf\u4fe1\u606f\u7f13\u6162\u4f20\u64ad\u3002",
+        "default_trust": 0.60,
+        "emotion_amplification": 0.42,
+        "alpha_in": 0.86,
+        "alpha_out": 0.50,
+        "bridge_bonus": 1.0,
+        "ring_k": 4,
+    },
     "community_network": {
         "label": "\u793e\u533a\u7f51\u7edc",
         "model": "Community-aware Weighted Complex Threshold Model",
@@ -448,6 +497,105 @@ def build_community_edges(agents: Dict[str, Agent], rng: random.Random) -> Set[T
     return edges
 
 
+def build_random_edges(agents: Dict[str, Agent], rng: random.Random, probability: float = 0.22) -> Set[Tuple[str, str]]:
+    ids = list(agents.keys())
+    edges: Set[Tuple[str, str]] = set()
+    for i, aid in enumerate(ids):
+        for bid in ids[i + 1:]:
+            if rng.random() < probability:
+                edges.add(pair(aid, bid))
+    return ensure_connected_edges(ids, edges)
+
+
+def build_regular_edges(agents: Dict[str, Agent], k: int = 4) -> Set[Tuple[str, str]]:
+    ids = list(agents.keys())
+    edges: Set[Tuple[str, str]] = set()
+    n = len(ids)
+    if n <= 1:
+        return edges
+    half = max(1, k // 2)
+    for i, aid in enumerate(ids):
+        for offset in range(1, half + 1):
+            edges.add(pair(aid, ids[(i + offset) % n]))
+            edges.add(pair(aid, ids[(i - offset) % n]))
+    return edges
+
+
+def build_small_world_edges(agents: Dict[str, Agent], rng: random.Random, k: int = 4, rewire_probability: float = 0.18) -> Set[Tuple[str, str]]:
+    ids = list(agents.keys())
+    edges = build_regular_edges(agents, k)
+    n = len(ids)
+    if n <= 2:
+        return edges
+    rewired: Set[Tuple[str, str]] = set(edges)
+    for edge in list(edges):
+        if rng.random() >= rewire_probability:
+            continue
+        a, b = edge
+        candidate_pool = [x for x in ids if x != a and pair(a, x) not in rewired]
+        if not candidate_pool:
+            continue
+        rewired.discard(edge)
+        rewired.add(pair(a, rng.choice(candidate_pool)))
+    return ensure_connected_edges(ids, rewired)
+
+
+def build_scale_free_edges(agents: Dict[str, Agent], rng: random.Random, m: int = 2) -> Set[Tuple[str, str]]:
+    ids = list(agents.keys())
+    edges: Set[Tuple[str, str]] = set()
+    if len(ids) <= 2:
+        return build_regular_edges(agents, 2)
+
+    seed_size = min(max(m + 1, 3), len(ids))
+    for i in range(seed_size):
+        for j in range(i + 1, seed_size):
+            edges.add(pair(ids[i], ids[j]))
+
+    degree = defaultdict(int)
+    for a, b in edges:
+        degree[a] += 1
+        degree[b] += 1
+
+    for aid in ids[seed_size:]:
+        targets: Set[str] = set()
+        existing = ids[:ids.index(aid)]
+        while len(targets) < min(m, len(existing)):
+            weighted = []
+            for candidate in existing:
+                weighted.extend([candidate] * max(1, degree[candidate]))
+            targets.add(rng.choice(weighted))
+        for target in targets:
+            edges.add(pair(aid, target))
+            degree[aid] += 1
+            degree[target] += 1
+    return ensure_connected_edges(ids, edges)
+
+
+def build_network_edges(network_type: str, agents: Dict[str, Agent], rng: random.Random, config: Dict[str, Any]) -> Set[Tuple[str, str]]:
+    if network_type == "random_network":
+        return build_random_edges(agents, rng, config.get("edge_probability", 0.22))
+    if network_type == "small_world_network":
+        return build_small_world_edges(agents, rng, config.get("ring_k", 4), config.get("rewire_probability", 0.18))
+    if network_type == "scale_free_network":
+        return build_scale_free_edges(agents, rng, config.get("attach_m", 2))
+    if network_type == "regular_network":
+        return build_regular_edges(agents, config.get("ring_k", 4))
+    return build_community_edges(agents, rng)
+
+
+def ensure_connected_edges(ids: List[str], edges: Set[Tuple[str, str]]) -> Set[Tuple[str, str]]:
+    if len(ids) <= 1:
+        return edges
+    seen = {aid: 0 for aid in ids}
+    for a, b in edges:
+        seen[a] += 1
+        seen[b] += 1
+    for i, aid in enumerate(ids):
+        if seen[aid] == 0:
+            edges.add(pair(aid, ids[(i + 1) % len(ids)]))
+    return edges
+
+
 class AnalysisEngine:
     def __init__(self, agents: Dict[str, Agent], edges: Set[Tuple[str, str]], adjacency: Dict[str, Set[str]]):
         self.agents = agents
@@ -597,7 +745,7 @@ class SimulationEngine:
         self.network_type = network_type if network_type in NETWORK_SCENARIOS else "community_network"
         self.config = NETWORK_SCENARIOS[self.network_type]
         self.agents = load_original_agents(self.rng)
-        self.edges = build_community_edges(self.agents, self.rng)
+        self.edges = build_network_edges(self.network_type, self.agents, self.rng, self.config)
         self.adjacency = self._adjacency(self.edges)
         self._assign_network_roles()
         self.time_step = 0
