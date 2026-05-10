@@ -1,0 +1,1700 @@
+"""
+Author: Joon Sung Park (joonspk@stanford.edu)
+
+File: plan.py
+Description: This defines the "Plan" module for generative agents. 
+"""
+import datetime
+import math
+import random 
+import sys
+import time
+sys.path.append('../../')
+
+from global_methods import *
+from persona.prompt_template.run_gpt_prompt import *
+from persona.cognitive_modules.retrieve import *
+from persona.cognitive_modules.converse import *
+from persona.cognitive_modules.phone_browsing import (
+    browse_phone, should_browse_phone, PHONE_USAGE_CONFIG
+)
+
+# 中文名到拼音的映射（用于兼容记忆中的中文名）
+NAME_MAPPING = {
+    "高建国": "Gao Jianguo",
+    "王丽华": "Wang Lihua",
+    "林小雨": "Lin Xiaoyu",
+    "李大强": "Li Daqiang",
+    "陈思远": "Chen Siyuan",
+    "周小艺": "Zhou Xiaoyi",
+    "韩小雪": "Han Xiaoxue",
+    "张国庆": "Zhang Guoqing",
+    "刘小敏": "Liu Xiaomin",
+}
+
+def normalize_persona_name(name):
+    """将中文名转换为拼音，如果已经是拼音则直接返回"""
+    return NAME_MAPPING.get(name, name)
+
+##############################################################################
+# CHAPTER 2: Generate
+##############################################################################
+
+def generate_wake_up_hour(persona):
+  """
+  Generates the time when the persona wakes up. This becomes an integral part
+  of our process for generating the persona's daily plan.
+  
+  Persona state: identity stable set, lifestyle, first_name
+
+  INPUT: 
+    persona: The Persona class instance 
+  OUTPUT: 
+    an integer signifying the persona's wake up hour
+  EXAMPLE OUTPUT: 
+    8
+  """
+  if debug: print ("GNS FUNCTION: <generate_wake_up_hour>")
+
+  wake_raw = int(run_gpt_prompt_wake_up_hour(persona)[0])
+
+  # For the three main student personas, gently clamp wake-up time so that
+  # they do not sleep too late into the morning. This keeps the world more
+  # active and creates a longer window for encounters and conversations.
+  name = getattr(persona.scratch, "name", persona.name)
+  early_risers = {"Wang Lihua", "Lin Xiaoyu", "Gao Jianguo", "Li Daqiang", "Chen Siyuan", "Zhou Xiaoyi", "Han Xiaoxue", "Zhang Guoqing", "Liu Xiaomin"}
+  if name in early_risers:
+    # Ensure they wake up no later than 7am, but never before 5am to avoid
+    # unrealistic schedules if the model outputs extreme values.
+    wake_raw = max(5, min(7, wake_raw))
+
+  return wake_raw
+
+
+def generate_first_daily_plan(persona, wake_up_hour): 
+  """
+  Generates the daily plan for the persona. 
+  Basically the long term planning that spans a day. Returns a list of actions
+  that the persona will take today. Usually comes in the following form: 
+  'wake up and complete the morning routine at 6:00 am', 
+  'eat breakfast at 7:00 am',.. 
+  Note that the actions come without a period. 
+
+  Persona state: identity stable set, lifestyle, cur_data_str, first_name
+
+  INPUT: 
+    persona: The Persona class instance 
+    wake_up_hour: an integer that indicates when the hour the persona wakes up 
+                  (e.g., 8)
+  OUTPUT: 
+    a list of daily actions in broad strokes.
+  EXAMPLE OUTPUT: 
+    ['wake up and complete the morning routine at 6:00 am', 
+     'have breakfast and brush teeth at 6:30 am',
+     'work on painting project from 8:00 am to 12:00 pm', 
+     'have lunch at 12:00 pm', 
+     'take a break and watch TV from 2:00 pm to 4:00 pm', 
+     'work on painting project from 4:00 pm to 6:00 pm', 
+     'have dinner at 6:00 pm', 'watch TV from 7:00 pm to 8:00 pm']
+  """
+  if debug: print ("GNS FUNCTION: <generate_first_daily_plan>")
+  return run_gpt_prompt_daily_plan(persona, wake_up_hour)[0]
+
+
+def generate_hourly_schedule(persona, wake_up_hour): 
+  """
+  Based on the daily req, creates an hourly schedule -- one hour at a time. 
+  The form of the action for each of the hour is something like below: 
+  "sleeping in her bed"
+  
+  The output is basically meant to finish the phrase, "x is..."
+
+  Persona state: identity stable set, daily_plan
+
+  INPUT: 
+    persona: The Persona class instance 
+    persona: Integer form of the wake up hour for the persona.  
+  OUTPUT: 
+    a list of activities and their duration in minutes: 
+  EXAMPLE OUTPUT: 
+    [['sleeping', 360], ['waking up and starting her morning routine', 60], 
+     ['eating breakfast', 60],..
+  """
+  if debug: print ("GNS FUNCTION: <generate_hourly_schedule>")
+
+  # ========== 分段生成策略：避免token截断 ==========
+  # 完整24小时时间表
+  hour_str_full = ["00:00 AM", "01:00 AM", "02:00 AM", "03:00 AM", "04:00 AM", 
+                   "05:00 AM", "06:00 AM", "07:00 AM", "08:00 AM", "09:00 AM", 
+                   "10:00 AM", "11:00 AM", "12:00 PM", "01:00 PM", "02:00 PM", 
+                   "03:00 PM", "04:00 PM", "05:00 PM", "06:00 PM", "07:00 PM", 
+                   "08:00 PM", "09:00 PM", "10:00 PM", "11:00 PM"]
+  
+  # ========== 快速测试模式（用完删除）==========
+  # FAST_TEST_MODE = True
+  # if FAST_TEST_MODE:
+  #   n_m1_activity = ["sleeping"] * wake_up_hour + ["idle"] * (24 - wake_up_hour)
+  #   print(f"[FastTest] {persona.scratch.name} 使用默认日程，跳过LLM")
+  # else:
+  if True:  # 注释掉快速测试模式，始终使用正常模式
+    n_m1_activity = []
+    diversity_repeat_count = 3
+    
+    # 分段生成：上午(0-12) + 下午(12-24)
+    for i in range(diversity_repeat_count): 
+      if len(set(n_m1_activity)) < 2: 
+        n_m1_activity = []
+        temp_wake = wake_up_hour
+        
+        # 上午：0-12点
+        for curr_hour_str in hour_str_full[:12]: 
+          if temp_wake > 0: 
+            n_m1_activity += ["sleeping"]
+            temp_wake -= 1
+          else: 
+            try:
+              resp = run_gpt_prompt_generate_hourly_schedule(
+                      persona, curr_hour_str, n_m1_activity, hour_str_full)
+              if resp and len(resp) > 0:
+                n_m1_activity += [resp[0]]
+              else:
+                n_m1_activity += ["idle"]  # fallback
+            except Exception as e:
+              print(f"[Plan] WARNING: LLM调用失败 for {persona.scratch.name} at {curr_hour_str}: {e}")
+              n_m1_activity += ["idle"]  # fallback
+        
+        # 下午：12-24点（传入完整hour_str_full，让LLM知道这是同一天的延续）
+        for curr_hour_str in hour_str_full[12:]: 
+          try:
+            resp = run_gpt_prompt_generate_hourly_schedule(
+                    persona, curr_hour_str, n_m1_activity, hour_str_full)
+            if resp and len(resp) > 0:
+              n_m1_activity += [resp[0]]
+            else:
+              n_m1_activity += ["idle"]  # fallback
+          except Exception as e:
+            print(f"[Plan] WARNING: LLM调用失败 for {persona.scratch.name} at {curr_hour_str}: {e}")
+            n_m1_activity += ["idle"]  # fallback
+    
+    print(f"✅ {persona.scratch.name} 日程生成完成：共{len(n_m1_activity)}小时")
+  
+  # Step 1. Compressing the hourly schedule to the following format: 
+  # The integer indicates the number of hours. They should add up to 24. 
+  # [['sleeping', 6], ['waking up and starting her morning routine', 1], 
+  # ['eating breakfast', 1], ['getting ready for the day', 1], 
+  # ['working on her painting', 2], ['taking a break', 1], 
+  # ['having lunch', 1], ['working on her painting', 3], 
+  # ['taking a break', 2], ['working on her painting', 2], 
+  # ['relaxing and watching TV', 1], ['going to bed', 1], ['sleeping', 2]]
+  _n_m1_hourly_compressed = []
+  prev = None 
+  prev_count = 0
+  for i in n_m1_activity: 
+    if i != prev:
+      prev_count = 1 
+      _n_m1_hourly_compressed += [[i, prev_count]]
+      prev = i
+    else: 
+      if _n_m1_hourly_compressed: 
+        _n_m1_hourly_compressed[-1][1] += 1
+
+  # Step 2. Expand to min scale (from hour scale)
+  # [['sleeping', 360], ['waking up and starting her morning routine', 60], 
+  # ['eating breakfast', 60],..
+  n_m1_hourly_compressed = []
+  for task, duration in _n_m1_hourly_compressed: 
+    n_m1_hourly_compressed += [[task, duration*60]]
+
+  # ========== 确保所有agent日程完整24小时 ==========
+  # 专家和普通agent都由LLM自由生成日程，不再强制添加任务
+  total_minutes = sum(item[1] for item in n_m1_hourly_compressed)
+
+  # 所有agent：补足到24小时
+  if total_minutes < 1440:
+    n_m1_hourly_compressed.append(["sleeping", 1440 - total_minutes])
+    print(f"✅ {persona.scratch.name} 日程补足到24小时")
+  # ========== 日程完整性保证结束 ==========
+
+  return n_m1_hourly_compressed
+
+
+def generate_task_decomp(persona, task, duration): 
+  """
+  A few shot decomposition of a task given the task description 
+
+  Persona state: identity stable set, curr_date_str, first_name
+
+  INPUT: 
+    persona: The Persona class instance 
+    task: the description of the task at hand in str form
+          (e.g., "waking up and starting her morning routine")
+    duration: an integer that indicates the number of minutes this task is 
+              meant to last (e.g., 60)
+  OUTPUT: 
+    a list of list where the inner list contains the decomposed task 
+    description and the number of minutes the task is supposed to last. 
+  EXAMPLE OUTPUT: 
+    [['going to the bathroom', 5], ['getting dressed', 5], 
+     ['eating breakfast', 15], ['checking her email', 5], 
+     ['getting her supplies ready for the day', 15], 
+     ['starting to work on her painting', 15]] 
+
+  """
+  if debug: print ("GNS FUNCTION: <generate_task_decomp>")
+  # 简化版：不调用 GPT，直接把整个任务当作一个区块执行，时长为原始 duration。
+  # 这样可以避免因外部 API 或解析异常导致仿真整体中断。
+  return [[task, duration]]
+
+
+def generate_action_sector(act_desp, persona, maze): 
+  """TODO 
+  Given the persona and the task description, choose the action_sector. 
+
+  Persona state: identity stable set, n-1 day schedule, daily plan
+
+  INPUT: 
+    act_desp: description of the new action (e.g., "sleeping")
+    persona: The Persona class instance 
+  OUTPUT: 
+    action_arena (e.g., "bedroom 2")
+  EXAMPLE OUTPUT: 
+    "bedroom 2"
+  """ 
+  if debug: print ("GNS FUNCTION: <generate_action_sector>")
+
+  # 对几个关键的社交活动，直接将人物硬性放到统一的公共区域，
+  # 以提高他们在早餐 / 午餐 / 晚上相遇并对话的概率。
+  text = act_desp.lower()
+  if "having breakfast and chatting at the campus cafe" in text:
+    # 统一到 Hobbs Cafe
+    return "Hobbs Cafe"
+  if "having lunch together at the campus cafeteria" in text:
+    # 统一到 Oak Hill College（校园教学区），用作“食堂”近似
+    return "Oak Hill College"
+  if "relaxing and talking with friends at the town square" in text:
+    # 统一到 Johnson Park，作为镇中心广场的近似公共空间
+    return "Johnson Park"
+
+  # 对于三位学生人物，当日程文本本身已经明显指向某类地点时，
+  # 在这里做一层本地规则，尽量减少 GPT 对地点判断的影响。
+  name = getattr(persona.scratch, "name", persona.name)
+  civilian_set = {"Wang Lihua", "Lin Xiaoyu", "Gao Jianguo", "Li Daqiang", "Chen Siyuan", "Zhou Xiaoyi", "Han Xiaoxue", "Zhang Guoqing", "Liu Xiaomin"}
+  if name in civilian_set:
+    # 睡觉 / 上床 → 学生宿舍
+    if ("sleep" in text) or ("in bed" in text):
+      return "Dorm for Oak Hill College"
+
+    # 明确是学习、上课、做研究 → Oak Hill College
+    study_kw = ["class", "lecture", "seminar", "library", "study", 
+                "studying", "research", "paper", "assignment"]
+    if any(kw in text for kw in study_kw):
+      return "Oak Hill College"
+
+    # 明确是去咖啡馆 / 喝咖啡 → Hobbs Cafe
+    cafe_kw = ["hobbs cafe", "coffee", "cafe", "breakfast at the cafe"]
+    if any(kw in text for kw in cafe_kw):
+      return "Hobbs Cafe"
+
+    # 散步 / 在公园活动 → Johnson Park
+    park_kw = ["walk in the park", "walking in the park", "at the park",
+               "johnson park"]
+    if any(kw in text for kw in park_kw):
+      return "Johnson Park"
+
+    # 去酒吧 / pub → The Rose and Crown Pub
+    pub_kw = ["the rose and crown pub", "pub", "bar", "having a drink"]
+    if any(kw in text for kw in pub_kw):
+      return "The Rose and Crown Pub"
+
+    # 购物 / 药店 / market → The Willows Market and Pharmacy
+    market_kw = ["market", "pharmacy", "groceries", "grocery"]
+    if any(kw in text for kw in market_kw):
+      return "The Willows Market and Pharmacy"
+
+    # 购买用品 / supply store → Harvey Oak Supply Store
+    supply_kw = ["harvey oak supply store", "supplies", "hardware store"]
+    if any(kw in text for kw in supply_kw):
+      return "Harvey Oak Supply Store"
+
+  # 其余模糊场景，仍然交给 GPT 决定 sector。
+  return run_gpt_prompt_action_sector(act_desp, persona, maze)[0]
+
+
+def generate_action_arena(act_desp, persona, maze, act_world, act_sector): 
+  """TODO 
+  Given the persona and the task description, choose the action_arena. 
+
+  Persona state: identity stable set, n-1 day schedule, daily plan
+
+  INPUT: 
+    act_desp: description of the new action (e.g., "sleeping")
+    persona: The Persona class instance 
+  OUTPUT: 
+    action_arena (e.g., "bedroom 2")
+  EXAMPLE OUTPUT: 
+    "bedroom 2"
+  """
+  if debug: print ("GNS FUNCTION: <generate_action_arena>")
+
+  # 对三位学生人物，当行为是睡觉 / 在床上时，直接将 arena 
+  # 绑定到各自的房间，避免模型把睡觉安排在 garden / common room。
+  text = act_desp.lower()
+  name = getattr(persona.scratch, "name", persona.name)
+  # 平民角色睡觉时返回各自房间
+  civilian_rooms = {
+    "Wang Lihua": "Wang Lihua's apartment",
+    "Gao Jianguo": "Gao Jianguo's room",
+    "Lin Xiaoyu": "Lin Xiaoyu's room",
+    "Li Daqiang": "Li Daqiang's home",
+    "Chen Siyuan": "Chen Siyuan's room",
+    "Zhou Xiaoyi": "Zhou Xiaoyi's room",
+    "Han Xiaoxue": "Han Xiaoxue's home",
+    "Zhang Guoqing": "Zhang Guoqing's room",
+    "Liu Xiaomin": "Liu Xiaomin's room",
+  }
+  if ("sleep" in text) or ("in bed" in text):
+    if name in civilian_rooms:
+      return civilian_rooms[name]
+
+  result = run_gpt_prompt_action_arena(act_desp, persona, maze, act_world, act_sector)
+  if result is None or result[0] is None:
+    arenas = maze.address_tiles.get(f"{act_world}:{act_sector}", {}).keys()
+    default_arena = list(arenas)[0] if arenas else "common room"
+    print(f"[Plan] WARNING: arena is None, using: {default_arena}")
+    return default_arena
+  return result[0]
+
+
+def generate_action_game_object(act_desp, act_address, persona, maze):
+  """TODO
+  Given the action description and the act address (the address where
+  we expect the action to task place), choose one of the game objects. 
+
+  Persona state: identity stable set, n-1 day schedule, daily plan
+
+  INPUT: 
+    act_desp: the description of the action (e.g., "sleeping")
+    act_address: the arena where the action will take place: 
+               (e.g., "dolores double studio:double studio:bedroom 2")
+    persona: The Persona class instance 
+  OUTPUT: 
+    act_game_object: 
+  EXAMPLE OUTPUT: 
+    "bed"
+  """
+  if debug: print ("GNS FUNCTION: <generate_action_game_object>")
+  if not persona.s_mem.get_str_accessible_arena_game_objects(act_address): 
+    return "<random>"
+  return run_gpt_prompt_action_game_object(act_desp, persona, maze, act_address)[0]
+
+
+def generate_action_pronunciatio(act_desp, persona): 
+  """TODO 
+  Given an action description, creates an emoji string description via a few
+  shot prompt. 
+
+  Does not really need any information from persona. 
+
+  INPUT: 
+    act_desp: the description of the action (e.g., "sleeping")
+    persona: The Persona class instance
+  OUTPUT: 
+    a string of emoji that translates action description.
+  EXAMPLE OUTPUT: 
+    "🧈🍞"
+  """
+  if debug: print ("GNS FUNCTION: <generate_action_pronunciatio>")
+  try: 
+    x = run_gpt_prompt_pronunciatio(act_desp, persona)[0]
+  except: 
+    x = "🙂"
+
+  if not x: 
+    return "🙂"
+  return x
+
+
+def generate_action_event_triple(act_desp, persona): 
+  """TODO 
+
+  INPUT: 
+    act_desp: the description of the action (e.g., "sleeping")
+    persona: The Persona class instance
+  OUTPUT: 
+    a string of emoji that translates action description.
+  EXAMPLE OUTPUT: 
+    "🧈🍞"
+  """
+  if debug: print ("GNS FUNCTION: <generate_action_event_triple>")
+  return run_gpt_prompt_event_triple(act_desp, persona)[0]
+
+
+def generate_act_obj_desc(act_game_object, act_desp, persona): 
+  if debug: print ("GNS FUNCTION: <generate_act_obj_desc>")
+  # 原始实现直接索引 [0]，在底层 GPT / API 失败时会返回 None，
+  # 导致 "NoneType object is not subscriptable"。这里加一层稳健包装。
+  desc = None
+  try:
+    resp = run_gpt_prompt_act_obj_desc(act_game_object, act_desp, persona)
+    if resp:
+      desc = resp[0]
+  except Exception:
+    desc = None
+
+  if not desc:
+    # 简单的本地 fallback，不依赖外部模型，保证仿真不中断。
+    obj = act_game_object if act_game_object and act_game_object != "<random>" else "an object"
+    desc = f"{persona.scratch.name} is {act_desp} using {obj}"
+
+  return desc
+
+
+def generate_act_obj_event_triple(act_game_object, act_obj_desc, persona): 
+  if debug: print ("GNS FUNCTION: <generate_act_obj_event_triple>")
+  return run_gpt_prompt_act_obj_event_triple(act_game_object, act_obj_desc, persona)[0]
+
+
+def generate_convo(maze, init_persona, target_persona): 
+  curr_loc = maze.access_tile(init_persona.scratch.curr_tile)
+
+  # convo = run_gpt_prompt_create_conversation(init_persona, target_persona, curr_loc)[0]
+  # convo = agent_chat_v1(maze, init_persona, target_persona)
+  
+  result = agent_chat_v2(maze, init_persona, target_persona)
+  
+  # agent_chat_v2 现在返回 (curr_chat, curr_chat_with_sentiment)
+  if isinstance(result, tuple) and len(result) == 2:
+    convo, convo_with_sentiment = result
+  else:
+    # 兼容旧版本
+    convo = result
+    convo_with_sentiment = None
+  
+  all_utt = ""
+  for row in convo: 
+    speaker = row[0]
+    utt = row[1]
+    all_utt += f"{speaker}: {utt}\n"
+
+  convo_length = math.ceil(int(len(all_utt)/8) / 30)
+
+  if debug: print ("GNS FUNCTION: <generate_convo>")
+  
+  # 返回时包含情感数据（如果有）
+  return convo, convo_length, convo_with_sentiment
+
+
+def generate_convo_summary(persona, convo): 
+  convo_summary = run_gpt_prompt_summarize_conversation(persona, convo)[0]
+  return convo_summary
+
+
+def generate_decide_to_talk(init_persona, target_persona, retrieved): 
+  x =run_gpt_prompt_decide_to_talk(init_persona, target_persona, retrieved)[0]
+  if debug: print ("GNS FUNCTION: <generate_decide_to_talk>")
+
+  if x == "yes": 
+    return True
+  else: 
+    return False
+
+
+def generate_decide_to_react(init_persona, target_persona, retrieved): 
+  if debug: print ("GNS FUNCTION: <generate_decide_to_react>")
+  return run_gpt_prompt_decide_to_react(init_persona, target_persona, retrieved)[0]
+
+
+def generate_new_decomp_schedule(persona, inserted_act, inserted_act_dur,  start_hour, end_hour): 
+  # Step 1: Setting up the core variables for the function. 
+  # <p> is the persona whose schedule we are editing right now. 
+  p = persona
+  # <today_min_pass> indicates the number of minutes that have passed today. 
+  today_min_pass = (int(p.scratch.curr_time.hour) * 60 
+                    + int(p.scratch.curr_time.minute) + 1)
+  
+  # Step 2: We need to create <main_act_dur> and <truncated_act_dur>. 
+  # These are basically a sub-component of <f_daily_schedule> of the persona,
+  # but focusing on the current decomposition. 
+  # Here is an example for <main_act_dur>: 
+  # ['wakes up and completes her morning routine (wakes up at 6am)', 5]
+  # ['wakes up and completes her morning routine (wakes up at 6am)', 5]
+  # ['wakes up and completes her morning routine (uses the restroom)', 5]
+  # ['wakes up and completes her morning routine (washes her ...)', 10]
+  # ['wakes up and completes her morning routine (makes her bed)', 5]
+  # ['wakes up and completes her morning routine (eats breakfast)', 15]
+  # ['wakes up and completes her morning routine (gets dressed)', 10]
+  # ['wakes up and completes her morning routine (leaves her ...)', 5]
+  # ['wakes up and completes her morning routine (starts her ...)', 5]
+  # ['preparing for her day (waking up at 6am)', 5]
+  # ['preparing for her day (making her bed)', 5]
+  # ['preparing for her day (taking a shower)', 15]
+  # ['preparing for her day (getting dressed)', 5]
+  # ['preparing for her day (eating breakfast)', 10]
+  # ['preparing for her day (brushing her teeth)', 5]
+  # ['preparing for her day (making coffee)', 5]
+  # ['preparing for her day (checking her email)', 5]
+  # ['preparing for her day (starting to work on her painting)', 5]
+  # 
+  # And <truncated_act_dur> concerns only until where an event happens. 
+  # ['wakes up and completes her morning routine (wakes up at 6am)', 5]
+  # ['wakes up and completes her morning routine (wakes up at 6am)', 2]
+  main_act_dur = []
+  truncated_act_dur = []
+  dur_sum = 0 # duration sum
+  count = 0 # enumerate count
+  truncated_fin = False 
+
+  print ("DEBUG::: ", persona.scratch.name)
+  for act, dur in p.scratch.f_daily_schedule: 
+    if (dur_sum >= start_hour * 60) and (dur_sum < end_hour * 60): 
+      main_act_dur += [[act, dur]]
+      if dur_sum <= today_min_pass:
+        truncated_act_dur += [[act, dur]]
+      elif dur_sum > today_min_pass and not truncated_fin: 
+        # We need to insert that last act, duration list like this one: 
+        # e.g., ['wakes up and completes her morning routine (wakes up...)', 2]
+        truncated_act_dur += [[p.scratch.f_daily_schedule[count][0], 
+                               dur_sum - today_min_pass]] 
+        truncated_act_dur[-1][-1] -= (dur_sum - today_min_pass) ######## DEC 7 DEBUG;.. is the +1 the right thing to do??? 
+        # truncated_act_dur[-1][-1] -= (dur_sum - today_min_pass + 1) ######## DEC 7 DEBUG;.. is the +1 the right thing to do??? 
+        print ("DEBUG::: ", truncated_act_dur)
+
+        # truncated_act_dur[-1][-1] -= (dur_sum - today_min_pass) ######## DEC 7 DEBUG;.. is the +1 the right thing to do??? 
+        truncated_fin = True
+    dur_sum += dur
+    count += 1
+
+  persona_name = persona.name 
+  main_act_dur = main_act_dur
+
+  x = truncated_act_dur[-1][0].split("(")[0].strip() + " (on the way to " + truncated_act_dur[-1][0].split("(")[-1][:-1] + ")"
+  truncated_act_dur[-1][0] = x 
+
+  if "(" in truncated_act_dur[-1][0]: 
+    inserted_act = truncated_act_dur[-1][0].split("(")[0].strip() + " (" + inserted_act + ")"
+
+  # To do inserted_act_dur+1 below is an important decision but I'm not sure
+  # if I understand the full extent of its implications. Might want to 
+  # revisit. 
+  truncated_act_dur += [[inserted_act, inserted_act_dur]]
+  start_time_hour = (datetime.datetime(2022, 10, 31, 0, 0) 
+                   + datetime.timedelta(hours=start_hour))
+  end_time_hour = (datetime.datetime(2022, 10, 31, 0, 0) 
+                   + datetime.timedelta(hours=end_hour))
+
+  if debug: print ("GNS FUNCTION: <generate_new_decomp_schedule>")
+  return run_gpt_prompt_new_decomp_schedule(persona, 
+                                            main_act_dur, 
+                                            truncated_act_dur, 
+                                            start_time_hour,
+                                            end_time_hour,
+                                            inserted_act,
+                                            inserted_act_dur)[0]
+
+
+##############################################################################
+# CHAPTER 3: Plan
+##############################################################################
+
+def revise_identity(persona): 
+  p_name = persona.scratch.name
+
+  focal_points = [f"{p_name}'s plan for {persona.scratch.get_str_curr_date_str()}.",
+                  f"Important recent events for {p_name}'s life."]
+  retrieved = new_retrieve(persona, focal_points)
+
+  statements = "[Statements]\n"
+  for key, val in retrieved.items():
+    for i in val: 
+      statements += f"{i.created.strftime('%A %B %d -- %H:%M %p')}: {i.embedding_key}\n"
+
+  # print (";adjhfno;asdjao;idfjo;af", p_name)
+  plan_prompt = statements + "\n"
+  plan_prompt += f"Given the statements above, is there anything that {p_name} should remember as they plan for"
+  plan_prompt += f" *{persona.scratch.curr_time.strftime('%A %B %d')}*? "
+  plan_prompt += f"If there is any scheduling information, be as specific as possible (include date, time, and location if stated in the statement)\n\n"
+  plan_prompt += f"Write the response from {p_name}'s perspective."
+  plan_note = ChatGPT_single_request(plan_prompt)
+  # print (plan_note)
+
+  thought_prompt = statements + "\n"
+  thought_prompt += f"Given the statements above, how might we summarize {p_name}'s feelings about their days up to now?\n\n"
+  thought_prompt += f"Write the response from {p_name}'s perspective."
+  thought_note = ChatGPT_single_request(thought_prompt)
+  # print (thought_note)
+
+  currently_prompt = f"{p_name}'s status from {(persona.scratch.curr_time - datetime.timedelta(days=1)).strftime('%A %B %d')}:\n"
+  currently_prompt += f"{persona.scratch.currently}\n\n"
+  currently_prompt += f"{p_name}'s thoughts at the end of {(persona.scratch.curr_time - datetime.timedelta(days=1)).strftime('%A %B %d')}:\n" 
+  currently_prompt += (plan_note + thought_note).replace('\n', '') + "\n\n"
+  currently_prompt += f"It is now {persona.scratch.curr_time.strftime('%A %B %d')}. Given the above, write {p_name}'s status for {persona.scratch.curr_time.strftime('%A %B %d')} that reflects {p_name}'s thoughts at the end of {(persona.scratch.curr_time - datetime.timedelta(days=1)).strftime('%A %B %d')}. Write this in third-person talking about {p_name}."
+  currently_prompt += f"If there is any scheduling information, be as specific as possible (include date, time, and location if stated in the statement).\n\n"
+  currently_prompt += "Follow this format below:\nStatus: <new status>"
+  # print ("DEBUG ;adjhfno;asdjao;asdfsidfjo;af", p_name)
+  # print (currently_prompt)
+  new_currently = ChatGPT_single_request(currently_prompt)
+  # print (new_currently)
+  # print (new_currently[10:])
+
+  persona.scratch.currently = new_currently
+
+  daily_req_prompt = persona.scratch.get_str_iss() + "\n"
+  daily_req_prompt += f"Today is {persona.scratch.curr_time.strftime('%A %B %d')}. Here is {persona.scratch.name}'s plan today in broad-strokes (with the time of the day. e.g., have a lunch at 12:00 pm, watch TV from 7 to 8 pm).\n\n"
+  daily_req_prompt += f"Follow this format (the list should have 4~6 items but no more):\n"
+  daily_req_prompt += f"1. wake up and complete the morning routine at <time>, 2. ..."
+
+  # 所有agent（包括专家）都由LLM生成日程
+  new_daily_req = ChatGPT_single_request(daily_req_prompt)
+  new_daily_req = new_daily_req.replace('\n', ' ')
+  print ("WE ARE HERE!!!", new_daily_req)
+  persona.scratch.daily_plan_req = new_daily_req
+
+
+def _seed_public_health_expert_food_poisoning_memory(persona):
+  name = getattr(persona.scratch, "name", persona.name)
+  if name != "Public Health Expert":
+    return
+  if getattr(persona.scratch, "_seeded_food_poisoning_case", False):
+    return
+  created = persona.scratch.curr_time or datetime.datetime(2025, 7, 8)
+  expiration = created + datetime.timedelta(days=365)
+  s = persona.scratch.name
+  p = "prior_case"
+  o = "food_poisoning_tianshui_kindergarten"
+  base_keywords = set(["food_poisoning", "kindergarten", "lead", "children"])
+
+  texts = [
+    "我清楚记得，甘肃天水的一所幼儿园，为了让孩子的餐食看起来更鲜艳，长期在食物中违规使用工业彩绘颜料，结果导致大规模儿童血铅异常。",
+    "在那起天水事件中，玉米卷肠包和三色红枣发糕等食品里铅含量极度超标，很多孩子出现乏力、肚子痛、情绪激动、注意力难集中等症状，这种慢性铅暴露对儿童神经系统发育有长期不可逆的风险。",
+    "那次事件暴露出学校食堂管理失守、食品原料采购审核流于形式、食品留样和冷链制度执行不严，以及当地监管部门在家长反映异常后的应急响应迟缓等一系列问题。",
+    "我也记得，当时官方通报一度被质疑只想把责任全部推给幼儿园，家长对检测流程和结果公正性非常不信任，这说明在食品安全事件中，及时透明的信息公开与对家长关切的回应与医学救治同样重要。",
+  ]
+
+  for text in texts:
+    thought = text
+    keywords = set(list(base_keywords))
+    thought_poignancy = 8
+    thought_embedding_pair = (thought, get_embedding(thought))
+    persona.a_mem.add_thought(
+      created,
+      expiration,
+      s,
+      p,
+      o,
+      thought,
+      keywords,
+      thought_poignancy,
+      thought_embedding_pair,
+      None,
+    )
+
+  persona.scratch._seeded_food_poisoning_case = True
+
+
+def _seed_civilians_food_poisoning_news_memory(persona):
+  name = getattr(persona.scratch, "name", persona.name)
+  civilian_names = {"Wang Lihua", "Gao Jianguo", "Lin Xiaoyu", "Li Daqiang", "Chen Siyuan", "Zhou Xiaoyi", "Han Xiaoxue", "Zhang Guoqing", "Liu Xiaomin"}
+  if name not in civilian_names:
+    return
+  if getattr(persona.scratch, "_seeded_food_poisoning_news", False):
+    return
+
+  created = persona.scratch.curr_time or datetime.datetime(2025, 7, 8)
+  expiration = created + datetime.timedelta(days=365)
+  s = persona.scratch.name
+  p = "news"
+  o = "food_poisoning_kindergarten"
+
+  def _add_thought(text, extra_keywords=None, poignancy=7):
+    base_keywords = {"food_poisoning", "news", "kindergarten", "children"}
+    if extra_keywords:
+      base_keywords.update(extra_keywords)
+    keywords = set(base_keywords)
+    thought = text
+    thought_embedding_pair = (thought, get_embedding(thought))
+    persona.a_mem.add_thought(
+      created,
+      expiration,
+      s,
+      p,
+      o,
+      thought,
+      keywords,
+      poignancy,
+      thought_embedding_pair,
+      None,
+    )
+
+  if name == "Wang Lihua":
+    _add_thought(
+      "阳光幼儿园的食物中毒事件让我非常震惊！孩子才这么小，怎么能出这种事？我在咖啡馆听到好多家长和老师在讨论这件事，大家都很担心。",
+      extra_keywords={"cafe", "gossip", "parents"},
+      poignancy=7,
+    )
+  elif name == "Gao Jianguo":
+    _add_thought(
+      "幼儿园食物中毒事件又一次证明了这系统烂透了，谁在乎孩子？他们只在乎赚钱。那些监管部门都是摆设！",
+      extra_keywords={"system", "anger", "criticism"},
+      poignancy=8,
+    )
+  elif name == "Lin Xiaoyu":
+    _add_thought(
+      "作为阳光幼儿园的老师，食物中毒事件让我心痛不已。那些孩子我每天都在照顾，看到他们生病我真的很难受。最重要的是孩子先安全、先好起来。",
+      extra_keywords={"teacher", "care", "children"},
+      poignancy=9,
+    )
+  elif name == "Li Daqiang":
+    _add_thought(
+      "我孩子在医院躺着，你们跟我讲程序？讲流程？我不管什么流程，我要结果！这次绝对不能就这么算了！",
+      extra_keywords={"parent", "anger", "hospital"},
+      poignancy=10,
+    )
+  elif name == "Chen Siyuan":
+    _add_thought(
+      "幼儿园食物中毒事件不仅是一场意外，它折射的是我们到底把儿童安全放在什么位置。我想在播客里深入讨论这个问题。",
+      extra_keywords={"podcast", "analysis", "institution"},
+      poignancy=7,
+    )
+  elif name == "Zhou Xiaoyi":
+    _add_thought(
+      "大家都在怕，可是谁都不知道下一步该怎么办。我画了一幅空荡荡的幼儿园滑梯，试图表达这种无力感。",
+      extra_keywords={"art", "observation", "emotion"},
+      poignancy=6,
+    )
+  elif name == "Han Xiaoxue":
+    _add_thought(
+      "那个食堂……我以前也在那吃饭的。听说有小朋友中毒了，那些小孩比我小时候还小，他们什么都不懂。",
+      extra_keywords={"former_student", "memory", "concern"},
+      poignancy=7,
+    )
+  elif name == "Zhang Guoqing":
+    _add_thought(
+      "我这几天拉的家长，一个比一个憔悴。每个人都在讲自己的孩子，我听着都揪心。",
+      extra_keywords={"taxi", "stories", "sympathy"},
+      poignancy=6,
+    )
+  elif name == "Liu Xiaomin":
+    _add_thought(
+      "我看见了……那天……那个供应商送来的菜，颜色就不太对。我当时想说，但厨师长说没事。如果我当时坚持说出来，是不是就不会这样……",
+      extra_keywords={"witness", "guilt", "secret"},
+      poignancy=10,
+    )
+
+  persona.scratch._seeded_food_poisoning_news = True
+
+
+def _long_term_planning(persona, new_day): 
+  """
+  Formulates the persona's daily long-term plan if it is the start of a new 
+  day. This basically has two components: first, we create the wake-up hour, 
+  and second, we create the hourly schedule based on it. 
+  INPUT
+    new_day: Indicates whether the current time signals a "First day",
+             "New day", or False (for neither). This is important because we
+             create the personas' long term planning on the new day. 
+  """
+  # ========== 快速测试模式（用完删除）==========
+  # FAST_TEST_MODE = True
+  # if FAST_TEST_MODE:
+  #   wake_up_hour = 8
+  #   persona.scratch.daily_req = ["wake up at 8am", "idle during day", "attend meeting at 11pm"]
+  #   persona.scratch.f_daily_schedule = generate_hourly_schedule(persona, wake_up_hour)
+  #   print(f"[FastTest] {persona.scratch.name} 完成快速初始化")
+  #   return
+  # ========== 快速测试模式结束 ==========
+  
+  # We start by creating the wake up hour for the persona. 
+  wake_up_hour = generate_wake_up_hour(persona)
+
+  name = getattr(persona.scratch, "name", persona.name)
+  if new_day == "First day":
+    if name == "Public Health Expert":
+      _seed_public_health_expert_food_poisoning_memory(persona)
+    _seed_civilians_food_poisoning_news_memory(persona)
+
+  # When it is a new day, we start by creating the daily_req of the persona.
+  # Note that the daily_req is a list of strings that describe the persona's
+  # day in broad strokes.
+  if new_day == "First day": 
+    # Bootstrapping the daily plan for the start of then generation:
+    # if this is the start of generation (so there is no previous day's 
+    # daily requirement, or if we are on a new day, we want to create a new
+    # set of daily requirements.
+    persona.scratch.daily_req = generate_first_daily_plan(persona, 
+                                                          wake_up_hour)
+  elif new_day == "New day":
+    revise_identity(persona)
+
+    # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - TODO
+    # We need to create a new daily_req here...
+    persona.scratch.daily_req = persona.scratch.daily_req
+
+  # Based on the daily_req, we create an hourly schedule for the persona, 
+  # which is a list of todo items with a time duration (in minutes) that 
+  # add up to 24 hours.
+  persona.scratch.f_daily_schedule = generate_hourly_schedule(persona, 
+                                                              wake_up_hour)
+
+  # For the three main student personas, softly enforce a few daily
+  # "meeting" blocks at shared public locations to increase the chance of
+  # encounters and conversations:
+  # - Breakfast at the cafe around 8:009:00
+  # - Lunch at the campus cafeteria around 12:0013:00
+  # - Evening at the town square around 19:0020:00
+  def _min_to_idx_pairs(schedule):
+    pairs = []
+    curr_start = 0
+    for idx, (_, dur) in enumerate(schedule):
+      curr_end = curr_start + dur
+      pairs.append((idx, curr_start, curr_end))
+      curr_start = curr_end
+    return pairs
+
+  def _override_window(schedule, win_start_min, win_end_min, desc):
+    if not schedule:
+      return schedule
+    pairs = _min_to_idx_pairs(schedule)
+    new_sched = []
+    inserted = False
+    for idx, s, e in pairs:
+      act, dur = schedule[idx]
+      # completely before window
+      if e <= win_start_min or s >= win_end_min:
+        new_sched.append([act, dur])
+        continue
+      # overlapping: cut into up to three segments
+      if s < win_start_min:
+        new_sched.append([act, win_start_min - s])
+      if not inserted:
+        new_sched.append([desc, max(0, win_end_min - win_start_min)])
+        inserted = True
+      if e > win_end_min:
+        new_sched.append([act, e - win_end_min])
+    # Compress adjacent identical activities
+    compressed = []
+    for act, dur in new_sched:
+      if dur <= 0:
+        continue
+      if compressed and compressed[-1][0] == act:
+        compressed[-1][1] += dur
+      else:
+        compressed.append([act, dur])
+    return compressed or schedule
+
+  name = getattr(persona.scratch, "name", persona.name)
+  civilian_personas = {"Wang Lihua", "Lin Xiaoyu", "Gao Jianguo", "Li Daqiang", "Chen Siyuan", "Zhou Xiaoyi", "Han Xiaoxue", "Zhang Guoqing", "Liu Xiaomin"}
+  if name in civilian_personas:
+    sched = persona.scratch.f_daily_schedule
+    # Breakfast: 8:00–9:00 (480–540 minutes)
+    sched = _override_window(
+      sched,
+      8 * 60,
+      9 * 60,
+      f"在老街咖啡馆吃早餐和聊天",
+    )
+    # Lunch: 12:00–13:00 (720–780 minutes)
+    sched = _override_window(
+      sched,
+      12 * 60,
+      13 * 60,
+      f"在社区食堂吃午饭",
+    )
+    # Evening: 19:00–20:00 (1140–1200 minutes)
+    sched = _override_window(
+      sched,
+      19 * 60,
+      20 * 60,
+      f"在公园或咖啡馆和朋友聊天放松",
+    )
+    
+    persona.scratch.f_daily_schedule = sched
+
+  persona.scratch.f_daily_schedule_hourly_org = (persona.scratch
+                                                   .f_daily_schedule[:])
+
+
+  # Added March 4 -- adding plan to the memory.
+  thought = f"This is {persona.scratch.name}'s plan for {persona.scratch.curr_time.strftime('%A %B %d')}:"
+  for i in persona.scratch.daily_req: 
+    thought += f" {i},"
+  thought = thought[:-1] + "."
+  created = persona.scratch.curr_time
+  expiration = persona.scratch.curr_time + datetime.timedelta(days=30)
+  s, p, o = (persona.scratch.name, "plan", persona.scratch.curr_time.strftime('%A %B %d'))
+  keywords = set(["plan"])
+  thought_poignancy = 5
+  thought_embedding_pair = (thought, get_embedding(thought))
+  persona.a_mem.add_thought(created, expiration, s, p, o, 
+                            thought, keywords, thought_poignancy, 
+                            thought_embedding_pair, None)
+
+  # print("Sleeping for 20 seconds...")
+  # time.sleep(10)
+  # print("Done sleeping!")
+
+
+
+def _determine_action(persona, maze): 
+  """
+  Creates the next action sequence for the persona. 
+  The main goal of this function is to run "add_new_action" on the persona's 
+  scratch space, which sets up all the action related variables for the next 
+  action. 
+  As a part of this, the persona may need to decompose its hourly schedule as 
+  needed.   
+  INPUT
+    persona: Current <Persona> instance whose action we are determining. 
+    maze: Current <Maze> instance. 
+  """
+  def determine_decomp(act_desp, act_dura):
+    """
+    Given an action description and its duration, we determine whether we need
+    to decompose it. If the action is about the agent sleeping, we generally
+    do not want to decompose it, so that's what we catch here. 
+
+    INPUT: 
+      act_desp: the description of the action (e.g., "sleeping")
+      act_dura: the duration of the action in minutes. 
+    OUTPUT: 
+      a boolean. True if we need to decompose, False otherwise. 
+    """
+    if "sleep" not in act_desp and "bed" not in act_desp: 
+      return True
+    elif "sleeping" in act_desp or "asleep" in act_desp or "in bed" in act_desp:
+      return False
+    elif "sleep" in act_desp or "bed" in act_desp: 
+      if act_dura > 60: 
+        return False
+    return True
+
+  # The goal of this function is to get us the action associated with 
+  # <curr_index>. As a part of this, we may need to decompose some large 
+  # chunk actions. 
+  # Importantly, we try to decompose at least two hours worth of schedule at
+  # any given point. 
+  curr_index = persona.scratch.get_f_daily_schedule_index()
+  curr_index_60 = persona.scratch.get_f_daily_schedule_index(advance=60)
+
+  # * Decompose * 
+  # During the first hour of the day, we need to decompose two hours 
+  # sequence. We do that here. 
+  # 安全检查：确保日程不为空或None
+  if persona.scratch.f_daily_schedule is None or len(persona.scratch.f_daily_schedule) == 0:
+    print(f"[Plan] WARNING: {persona.scratch.name} has None/empty schedule, adding default")
+    persona.scratch.f_daily_schedule = [["idle", 1440]]  # 默认整天空闲
+  
+  if curr_index == 0:
+    # This portion is invoked if it is the first hour of the day. 
+    if curr_index < len(persona.scratch.f_daily_schedule):
+      act_desp, act_dura = persona.scratch.f_daily_schedule[curr_index]
+    else:
+      act_desp, act_dura = "idle", 60
+    if act_dura >= 60: 
+      # We decompose if the next action is longer than an hour, and fits the
+      # criteria described in determine_decomp.
+      if determine_decomp(act_desp, act_dura): 
+        persona.scratch.f_daily_schedule[curr_index:curr_index+1] = (
+                            generate_task_decomp(persona, act_desp, act_dura))
+    if curr_index_60 + 1 < len(persona.scratch.f_daily_schedule):
+      act_desp, act_dura = persona.scratch.f_daily_schedule[curr_index_60+1]
+      if act_dura >= 60: 
+        if determine_decomp(act_desp, act_dura): 
+          persona.scratch.f_daily_schedule[curr_index_60+1:curr_index_60+2] = (
+                            generate_task_decomp(persona, act_desp, act_dura))
+
+  if curr_index_60 < len(persona.scratch.f_daily_schedule):
+    # If it is not the first hour of the day, this is always invoked (it is
+    # also invoked during the first hour of the day -- to double up so we can
+    # decompose two hours in one go). Of course, we need to have something to
+    # decompose as well, so we check for that too. 
+    if persona.scratch.curr_time.hour < 23:
+      # And we don't want to decompose after 11 pm. 
+      act_desp, act_dura = persona.scratch.f_daily_schedule[curr_index_60]
+      if act_dura >= 60: 
+        if determine_decomp(act_desp, act_dura): 
+          persona.scratch.f_daily_schedule[curr_index_60:curr_index_60+1] = (
+                              generate_task_decomp(persona, act_desp, act_dura))
+  # * End of Decompose * 
+
+  # Generate an <Action> instance from the action description and duration. By
+  # this point, we assume that all the relevant actions are decomposed and 
+  # ready in f_daily_schedule. 
+  print ("DEBUG LJSDLFSKJF")
+  for i in persona.scratch.f_daily_schedule: print (i)
+  print (curr_index)
+  print (len(persona.scratch.f_daily_schedule))
+  print (persona.scratch.name)
+  print ("------")
+
+  # 1440
+  x_emergency = 0
+  for i in persona.scratch.f_daily_schedule: 
+    x_emergency += i[1]
+  # print ("x_emergency", x_emergency)
+
+  if 1440 - x_emergency > 0: 
+    print ("x_emergency__AAA", x_emergency)
+  persona.scratch.f_daily_schedule += [["sleeping", 1440 - x_emergency]]
+  
+
+
+
+  # 安全检查
+  if curr_index >= len(persona.scratch.f_daily_schedule):
+    print(f"[Plan] WARNING: curr_index {curr_index} out of range for {persona.scratch.name}, using default")
+    act_desp, act_dura = "idle", 60
+  else:
+    act_desp, act_dura = persona.scratch.f_daily_schedule[curr_index]
+
+  # ========== 快速测试模式：跳过所有LLM调用 ==========
+  # FAST_TEST_MODE = True
+  # if FAST_TEST_MODE:
+  #   curr_tile = persona.scratch.curr_tile
+  #   tile_info = maze.access_tile(curr_tile)
+  #   act_world = tile_info["world"]
+  #   act_sector = tile_info["sector"]
+  #   act_arena = tile_info["arena"]
+  #   new_address = f"{act_world}:{act_sector}:{act_arena}:<random>"
+  #   act_pron = "🚶"
+  #   act_event = (persona.scratch.name, "is", act_desp)
+  #   act_obj_desp = f"idle"
+  #   act_obj_pron = "⏳"
+  #   act_obj_event = ("object", "is", "idle")
+  #   print(f"[FastTest] {persona.scratch.name}: {act_desp[:30]}... @ {act_sector}")
+  # else:
+  if True:  # 注释掉快速测试模式，始终使用正常模式
+    # Finding the target location of the action and creating action-related
+    # variables.
+    act_world = maze.access_tile(persona.scratch.curr_tile)["world"]
+    # act_sector = maze.access_tile(persona.scratch.curr_tile)["sector"]
+    act_sector = generate_action_sector(act_desp, persona, maze)
+    if act_sector is None:
+      act_sector = maze.access_tile(persona.scratch.curr_tile)["sector"]
+      print(f"[Plan] WARNING: act_sector is None for {persona.scratch.name}, using current sector: {act_sector}")
+    act_arena = generate_action_arena(act_desp, persona, maze, act_world, act_sector)
+    if act_arena is None:
+      act_arena = maze.access_tile(persona.scratch.curr_tile)["arena"]
+      print(f"[Plan] WARNING: act_arena is None for {persona.scratch.name}, using current arena: {act_arena}")
+    act_address = f"{act_world}:{act_sector}:{act_arena}"
+    act_game_object = generate_action_game_object(act_desp, act_address,
+                                                  persona, maze)
+    new_address = f"{act_world}:{act_sector}:{act_arena}:{act_game_object}"
+    act_pron = generate_action_pronunciatio(act_desp, persona)
+    act_event = generate_action_event_triple(act_desp, persona)
+    # 规范化事件三元组中的subject（如果是persona名称，将中文名转换为拼音）
+    if act_event and len(act_event) >= 3:
+      s, p, o = act_event[0], act_event[1], act_event[2]
+      # 如果subject是persona名称，规范化它
+      if ":" not in s and s in NAME_MAPPING:
+        s = normalize_persona_name(s)
+        act_event = (s, p, o)
+    # Persona's actions also influence the object states. We set those up here. 
+    act_obj_desp = generate_act_obj_desc(act_game_object, act_desp, persona)
+    act_obj_pron = generate_action_pronunciatio(act_obj_desp, persona)
+    act_obj_event = generate_act_obj_event_triple(act_game_object, 
+                                                  act_obj_desp, persona)
+    # 规范化对象事件三元组中的subject（如果是persona名称，将中文名转换为拼音）
+    if act_obj_event and len(act_obj_event) >= 3:
+      s, p, o = act_obj_event[0], act_obj_event[1], act_obj_event[2]
+      # 如果subject是persona名称，规范化它
+      if ":" not in s and s in NAME_MAPPING:
+        s = normalize_persona_name(s)
+        act_obj_event = (s, p, o)
+
+  # Adding the action to persona's queue. 
+  persona.scratch.add_new_action(new_address, 
+                                 int(act_dura), 
+                                 act_desp, 
+                                 act_pron, 
+                                 act_event,
+                                 None,
+                                 None,
+                                 None,
+                                 None,
+                                 act_obj_desp, 
+                                 act_obj_pron, 
+                                 act_obj_event)
+
+
+def _choose_retrieved(persona, retrieved): 
+  """
+  Retrieved elements have multiple core "curr_events". We need to choose one
+  event to which we are going to react to. We pick that event here. 
+  INPUT
+    persona: Current <Persona> instance whose action we are determining. 
+    retrieved: A dictionary of <ConceptNode> that were retrieved from the 
+               the persona's associative memory. This dictionary takes the
+               following form: 
+               dictionary[event.description] = 
+                 {["curr_event"] = <ConceptNode>, 
+                  ["events"] = [<ConceptNode>, ...], 
+                  ["thoughts"] = [<ConceptNode>, ...] }
+  """
+  # Once we are done with the reflection, we might want to build a more  
+  # complex structure here.
+  
+  # We do not want to take self events... for now 
+  copy_retrieved = retrieved.copy()
+  persona_name_normalized = normalize_persona_name(persona.name)
+  for event_desc, rel_ctx in copy_retrieved.items(): 
+    curr_event = rel_ctx["curr_event"]
+    # 规范化subject后比较（兼容记忆中的中文名）
+    curr_subject_normalized = normalize_persona_name(curr_event.subject)
+    if curr_subject_normalized == persona_name_normalized: 
+      del retrieved[event_desc]
+
+  # Always choose persona first.
+  priority = []
+  for event_desc, rel_ctx in retrieved.items(): 
+    curr_event = rel_ctx["curr_event"]
+    # 规范化subject后比较（兼容记忆中的中文名）
+    curr_subject_normalized = normalize_persona_name(curr_event.subject)
+    if (":" not in curr_event.subject 
+        and curr_subject_normalized != persona_name_normalized): 
+      priority += [rel_ctx]
+  if priority: 
+    return random.choice(priority)
+
+  # Skip idle. 
+  for event_desc, rel_ctx in retrieved.items(): 
+    curr_event = rel_ctx["curr_event"]
+    if "is idle" not in event_desc: 
+      priority += [rel_ctx]
+  if priority: 
+    return random.choice(priority)
+  return None
+
+
+def _should_react(persona, retrieved, personas): 
+  """
+  Determines what form of reaction the persona should exihibit given the 
+  retrieved values. 
+  INPUT
+    persona: Current <Persona> instance whose action we are determining. 
+    retrieved: A dictionary of <ConceptNode> that were retrieved from the 
+               the persona's associative memory. This dictionary takes the
+               following form: 
+               dictionary[event.description] = 
+                 {["curr_event"] = <ConceptNode>, 
+                  ["events"] = [<ConceptNode>, ...], 
+                  ["thoughts"] = [<ConceptNode>, ...] }
+    personas: A dictionary that contains all persona names as keys, and the 
+              <Persona> instance as values. 
+  """
+  def get_distance(persona1, persona2):
+    """计算两个 persona 之间的距离"""
+    if not persona1.scratch.curr_tile or not persona2.scratch.curr_tile:
+      return float('inf')
+    x1, y1 = persona1.scratch.curr_tile
+    x2, y2 = persona2.scratch.curr_tile
+    return ((x1-x2)**2 + (y1-y2)**2) ** 0.5
+
+  def lets_talk(init_persona, target_persona, retrieved):
+    """
+    逻辑：
+    - 距离 <= 5 格: 直接对话
+    - 5 < 距离 <= 20 格: 0.8 概率走过去 (approach)
+    - 防止互相追逐：如果对方已在 approaching 我，我等待
+    - 重要任务中不打断（除非距离 <= 5 近距离接触）
+    """
+    # 基础检查
+    if (not target_persona.scratch.act_address 
+        or not target_persona.scratch.act_description
+        or not init_persona.scratch.act_address
+        or not init_persona.scratch.act_description): 
+      return False
+
+    # 睡觉中不对话/不走近
+    if ("sleeping" in target_persona.scratch.act_description 
+        or "sleeping" in init_persona.scratch.act_description): 
+      return False
+
+    # 23点后不对话
+    if init_persona.scratch.curr_time.hour == 23: 
+      return False
+
+    # 等待中不对话
+    if "<waiting>" in target_persona.scratch.act_address: 
+      return False
+    
+    # 检查是否在执行重要任务（简单关键词检查）
+    # 如果是重要任务，只有非常近（<=5格）才打断
+    important_keywords = ["meeting", "emergency", "urgent", "interview", "exam", 
+                          "会议", "紧急", "面试", "考试", "presentation"]
+    def is_important_task(desc):
+      if not desc:
+        return False
+      desc_lower = desc.lower()
+      return any(kw in desc_lower for kw in important_keywords)
+    
+    init_important = is_important_task(init_persona.scratch.act_description)
+    target_important = is_important_task(target_persona.scratch.act_description)
+
+    # 已经在对话中不重复对话
+    if (target_persona.scratch.chatting_with 
+      or init_persona.scratch.chatting_with): 
+      return False
+
+    # 冷却期内不对话
+    if (target_persona.name in init_persona.scratch.chatting_with_buffer): 
+      if init_persona.scratch.chatting_with_buffer[target_persona.name] > 0: 
+        return False
+
+    # 防止互相追逐：
+    # 1. 如果我已经在 approaching 别人，不再触发新的 approach
+    if (init_persona.scratch.act_event and 
+        len(init_persona.scratch.act_event) >= 2 and
+        init_persona.scratch.act_event[1] == "approaching"):
+      return False
+    
+    # 2. 如果对方已经在 approaching 我，我等待不动
+    if (target_persona.scratch.act_event and 
+        len(target_persona.scratch.act_event) >= 3 and
+        target_persona.scratch.act_event[1] == "approaching" and
+        target_persona.scratch.act_event[2] == init_persona.scratch.name):
+      return "wait_for_approach"
+
+    # 计算距离
+    dist = get_distance(init_persona, target_persona)
+    
+    # 距离 > 20 格: 看不到
+    if dist > 20:
+      return False
+    
+    # 距离 <= 5 格: 直接对话！（即使在做重要任务，近距离也可以对话）
+    if dist <= 5:
+      print(f"[Talk] {init_persona.scratch.name} 与 {target_persona.scratch.name} 距离 {dist:.1f} 格，开始对话")
+      return True
+    
+    # 5 < 距离 <= 20 格: 0.8 概率走过去
+    # 但如果任一方在做重要任务，不主动靠近打扰
+    if init_important or target_important:
+      print(f"[Skip Approach] 重要任务中，不打扰: {init_persona.scratch.act_description[:30]}")
+      return False
+    
+    approach_probability = 0.8
+    if random.random() < approach_probability:
+      print(f"[Approach] {init_persona.scratch.name} 决定走向 {target_persona.scratch.name} (距离 {dist:.1f} 格)")
+      return "approach"
+    
+    return False
+
+  def lets_react(init_persona, target_persona, retrieved): 
+    if (not target_persona.scratch.act_address 
+        or not target_persona.scratch.act_description
+        or not init_persona.scratch.act_address
+        or not init_persona.scratch.act_description): 
+      return False
+
+    if ("sleeping" in target_persona.scratch.act_description 
+        or "sleeping" in init_persona.scratch.act_description): 
+      return False
+
+    # return False
+    if init_persona.scratch.curr_time.hour == 23: 
+      return False
+
+    if "waiting" in target_persona.scratch.act_description: 
+      return False
+    
+    # 检查是否在同一区域（地址前3级相同，如 the Ville:Hobbs Cafe:cafe）
+    def get_area(addr):
+      if not addr:
+        return ""
+      parts = addr.split(":")
+      return ":".join(parts[:3]) if len(parts) >= 3 else addr
+    
+    init_area = get_area(init_persona.scratch.act_address)
+    target_area = get_area(target_persona.scratch.act_address)
+    
+    # 如果路径为空但在同一区域，仍可触发对话（需要距离检查）
+    if init_persona.scratch.planned_path == []:
+      if init_area != target_area:
+        return False
+      # 在同一区域，但还需要检查物理距离
+      dist = get_distance(init_persona, target_persona)
+      if dist > 5:  # 距离太远，不触发对话
+        return False
+      # 在同一区域且距离近，允许对话
+
+    if init_area != target_area: 
+      return False
+
+    react_mode = generate_decide_to_react(init_persona, 
+                                          target_persona, retrieved)
+
+    if react_mode == "1": 
+      wait_until = ((target_persona.scratch.act_start_time 
+        + datetime.timedelta(minutes=target_persona.scratch.act_duration - 1))
+        .strftime("%B %d, %Y, %H:%M:%S"))
+      return f"wait: {wait_until}"
+    elif react_mode == "2":
+      return False
+      return "do other things"
+    else:
+      return False #"keep" 
+
+  # If the persona is chatting right now, default to no reaction 
+  if persona.scratch.chatting_with: 
+    return False
+  if "<waiting>" in persona.scratch.act_address: 
+    return False
+
+  # Recall that retrieved takes the following form: 
+  # dictionary {["curr_event"] = <ConceptNode>, 
+  #             ["events"] = [<ConceptNode>, ...], 
+  #             ["thoughts"] = [<ConceptNode>, ...]}
+  curr_event = retrieved["curr_event"]
+
+  if ":" not in curr_event.subject: 
+    # this is a persona event. 
+    # 安全检查：确保目标persona存在
+    # 先将中文名转换为拼音（兼容记忆中的中文名）
+    target_persona_name = normalize_persona_name(curr_event.subject)
+    if target_persona_name not in personas:
+      print(f"[plan] WARNING: Persona '{curr_event.subject}' (normalized: '{target_persona_name}') not found in personas dict, skipping interaction")
+      return False
+    
+    talk_result = lets_talk(persona, personas[target_persona_name], retrieved)
+    
+    if talk_result == True:
+      return f"chat with {target_persona_name}"
+    elif talk_result == "approach":
+      return f"approach {target_persona_name}"
+    elif talk_result == "wait_for_approach":
+      # 对方正在走过来，我原地等待
+      return False
+    
+    react_mode = lets_react(persona, personas[target_persona_name], 
+                            retrieved)
+    return react_mode
+  return False
+
+
+def _create_react(persona, inserted_act, inserted_act_dur,
+                  act_address, act_event, chatting_with, chat, chatting_with_buffer,
+                  chatting_end_time, 
+                  act_pronunciatio, act_obj_description, act_obj_pronunciatio, 
+                  act_obj_event, act_start_time=None): 
+  p = persona 
+
+  min_sum = 0
+  for i in range (p.scratch.get_f_daily_schedule_hourly_org_index()): 
+    min_sum += p.scratch.f_daily_schedule_hourly_org[i][1]
+  start_hour = int (min_sum/60)
+
+  if (p.scratch.f_daily_schedule_hourly_org[p.scratch.get_f_daily_schedule_hourly_org_index()][1] >= 120):
+    end_hour = start_hour + p.scratch.f_daily_schedule_hourly_org[p.scratch.get_f_daily_schedule_hourly_org_index()][1]/60
+
+  elif (p.scratch.f_daily_schedule_hourly_org[p.scratch.get_f_daily_schedule_hourly_org_index()][1] + 
+      p.scratch.f_daily_schedule_hourly_org[p.scratch.get_f_daily_schedule_hourly_org_index()+1][1]): 
+    end_hour = start_hour + ((p.scratch.f_daily_schedule_hourly_org[p.scratch.get_f_daily_schedule_hourly_org_index()][1] + 
+              p.scratch.f_daily_schedule_hourly_org[p.scratch.get_f_daily_schedule_hourly_org_index()+1][1])/60)
+
+  else: 
+    end_hour = start_hour + 2
+  end_hour = int(end_hour)
+
+  dur_sum = 0
+  count = 0 
+  start_index = None
+  end_index = None
+  for act, dur in p.scratch.f_daily_schedule: 
+    if dur_sum >= start_hour * 60 and start_index == None:
+      start_index = count
+    if dur_sum >= end_hour * 60 and end_index == None: 
+      end_index = count
+    dur_sum += dur
+    count += 1
+
+  ret = generate_new_decomp_schedule(p, inserted_act, inserted_act_dur, 
+                                       start_hour, end_hour)
+  p.scratch.f_daily_schedule[start_index:end_index] = ret
+  p.scratch.add_new_action(act_address,
+                           inserted_act_dur,
+                           inserted_act,
+                           act_pronunciatio,
+                           act_event,
+                           chatting_with,
+                           chat,
+                           chatting_with_buffer,
+                           chatting_end_time,
+                           act_obj_description,
+                           act_obj_pronunciatio,
+                           act_obj_event,
+                           act_start_time)
+
+
+def _chat_react(maze, persona, focused_event, reaction_mode, personas):
+  # There are two personas -- the persona who is initiating the conversation
+  # and the persona who is the target. We get the persona instances here. 
+  init_persona = persona
+  target_persona_name_raw = reaction_mode[9:].strip()
+  # 先将中文名转换为拼音（兼容记忆中的中文名）
+  target_persona_name = normalize_persona_name(target_persona_name_raw)
+  # 安全检查：确保目标persona存在
+  if target_persona_name not in personas:
+    print(f"[plan] WARNING: Target persona '{target_persona_name_raw}' (normalized: '{target_persona_name}') not found in personas dict, skipping chat reaction")
+    return
+  target_persona = personas[target_persona_name]
+  curr_personas = [init_persona, target_persona]
+
+  # 保存对话前的原计划信息（用于对话结束后判断是否恢复）
+  for p in curr_personas:
+    if p.scratch.act_address and not p.scratch.chatting_with:
+      # 计算原计划的结束时间
+      if p.scratch.act_start_time and p.scratch.act_duration:
+        original_end = p.scratch.act_start_time + datetime.timedelta(minutes=p.scratch.act_duration)
+        p.scratch.pre_chat_act_address = p.scratch.act_address
+        p.scratch.pre_chat_act_description = p.scratch.act_description
+        p.scratch.pre_chat_act_end_time = original_end
+        print(f"[PreChat] {p.scratch.name} 保存原计划: {p.scratch.act_description[:30]}... 结束于 {original_end.strftime('%H:%M')}")
+
+  # Actually creating the conversation here. 
+  convo_result = generate_convo(maze, init_persona, target_persona)
+  
+  # 检查对话生成是否成功
+  if not convo_result or len(convo_result) < 2:
+    print(f"[Warning] 对话生成失败: {init_persona.scratch.name} -> {target_persona.scratch.name}")
+    return  # 跳过这次对话
+  
+  # 处理新的返回格式 (convo, duration_min, convo_with_sentiment)
+  if isinstance(convo_result, tuple) and len(convo_result) == 3:
+    convo, duration_min, convo_with_sentiment = convo_result
+  else:
+    # 兼容旧版本
+    convo, duration_min = convo_result[:2]
+    convo_with_sentiment = None
+  
+  convo_summary = generate_convo_summary(init_persona, convo)
+  inserted_act = convo_summary
+  inserted_act_dur = duration_min
+
+  act_start_time = target_persona.scratch.act_start_time
+
+  curr_time = target_persona.scratch.curr_time
+  if curr_time.second != 0: 
+    temp_curr_time = curr_time + datetime.timedelta(seconds=60 - curr_time.second)
+    chatting_end_time = temp_curr_time + datetime.timedelta(minutes=inserted_act_dur)
+  else: 
+    chatting_end_time = curr_time + datetime.timedelta(minutes=inserted_act_dur)
+
+  for role, p in [("init", init_persona), ("target", target_persona)]: 
+    if role == "init": 
+      act_address = f"<persona> {target_persona.name}"
+      act_event = (p.name, "chat with", target_persona.name)
+      chatting_with = target_persona.name
+      chatting_with_buffer = {}
+      chatting_with_buffer[target_persona.name] = 30  # 约5分钟冷却
+    elif role == "target": 
+      act_address = f"<persona> {init_persona.name}"
+      act_event = (p.name, "chat with", init_persona.name)
+      chatting_with = init_persona.name
+      chatting_with_buffer = {}
+      chatting_with_buffer[init_persona.name] = 30  # 约5分钟冷却
+
+    act_pronunciatio = "💬" 
+    act_obj_description = None
+    act_obj_pronunciatio = None
+    act_obj_event = (None, None, None)
+
+    _create_react(p, inserted_act, inserted_act_dur,
+      act_address, act_event, chatting_with, convo, chatting_with_buffer, chatting_end_time,
+      act_pronunciatio, act_obj_description, act_obj_pronunciatio, 
+      act_obj_event, act_start_time)
+
+
+def _wait_react(persona, reaction_mode): 
+  p = persona
+
+  inserted_act = f'waiting to start {p.scratch.act_description.split("(")[-1][:-1]}'
+  end_time = datetime.datetime.strptime(reaction_mode[6:].strip(), "%B %d, %Y, %H:%M:%S")
+  inserted_act_dur = (end_time.minute + end_time.hour * 60) - (p.scratch.curr_time.minute + p.scratch.curr_time.hour * 60) + 1
+
+  act_address = f"<waiting> {p.scratch.curr_tile[0]} {p.scratch.curr_tile[1]}"
+  act_event = (p.name, "waiting to start", p.scratch.act_description.split("(")[-1][:-1])
+  chatting_with = None
+  chat = None
+  chatting_with_buffer = None
+  chatting_end_time = None
+
+  act_pronunciatio = "⌛" 
+  act_obj_description = None
+  act_obj_pronunciatio = None
+  act_obj_event = (None, None, None)
+
+  _create_react(p, inserted_act, inserted_act_dur,
+    act_address, act_event, chatting_with, chat, chatting_with_buffer, chatting_end_time,
+    act_pronunciatio, act_obj_description, act_obj_pronunciatio, act_obj_event)
+
+
+def plan(persona, maze, personas, new_day, retrieved): 
+  """
+  Main cognitive function of the chain. It takes the retrieved memory and 
+  perception, as well as the maze and the first day state to conduct both 
+  the long term and short term planning for the persona. 
+
+  INPUT: 
+    maze: Current <Maze> instance of the world. 
+    personas: A dictionary that contains all persona names as keys, and the 
+              Persona instance as values. 
+    new_day: This can take one of the three values. 
+      1) <Boolean> False -- It is not a "new day" cycle (if it is, we would
+         need to call the long term planning sequence for the persona). 
+      2) <String> "First day" -- It is literally the start of a simulation,
+         so not only is it a new day, but also it is the first day. 
+      2) <String> "New day" -- It is a new day. 
+    retrieved: dictionary of dictionary. The first layer specifies an event,
+               while the latter layer specifies the "curr_event", "events", 
+               and "thoughts" that are relevant.
+  OUTPUT 
+    The target action address of the persona (persona.scratch.act_address).
+  """ 
+  # PART 1: Generate the hourly schedule. 
+  if new_day: 
+    _long_term_planning(persona, new_day)
+
+  # PART 2: If the current action has expired, we want to create a new plan.
+  if persona.scratch.act_check_finished(): 
+    # 检查是否是对话结束后需要恢复原计划
+    if (persona.scratch.pre_chat_act_address and 
+        persona.scratch.pre_chat_act_end_time and
+        persona.scratch.curr_time < persona.scratch.pre_chat_act_end_time):
+      # 对话结束，但原计划时间还没到，恢复原计划
+      remaining_minutes = int((persona.scratch.pre_chat_act_end_time - persona.scratch.curr_time).total_seconds() / 60)
+      if remaining_minutes > 0:
+        print(f"[PostChat] {persona.scratch.name} 对话结束，恢复原计划: {persona.scratch.pre_chat_act_description[:30]}... 剩余 {remaining_minutes} 分钟")
+        persona.scratch.act_address = persona.scratch.pre_chat_act_address
+        persona.scratch.act_description = persona.scratch.pre_chat_act_description
+        persona.scratch.act_duration = remaining_minutes
+        persona.scratch.act_start_time = persona.scratch.curr_time
+        persona.scratch.act_path_set = False
+        # 清除对话后保存的信息
+        persona.scratch.pre_chat_act_address = None
+        persona.scratch.pre_chat_act_description = None
+        persona.scratch.pre_chat_act_end_time = None
+      else:
+        # 时间不足，进入下一步
+        print(f"[PostChat] {persona.scratch.name} 对话结束，原计划时间已过，进入下一步")
+        persona.scratch.pre_chat_act_address = None
+        persona.scratch.pre_chat_act_description = None
+        persona.scratch.pre_chat_act_end_time = None
+        _determine_action(persona, maze)
+    else:
+      # 没有保存的原计划，或者原计划时间已过，正常进入下一步
+      if persona.scratch.pre_chat_act_address:
+        print(f"[PostChat] {persona.scratch.name} 对话结束，原计划时间已过，跳到下一步")
+        persona.scratch.pre_chat_act_address = None
+        persona.scratch.pre_chat_act_description = None
+        persona.scratch.pre_chat_act_end_time = None
+      _determine_action(persona, maze)
+
+  # PART 3: If you perceived an event that needs to be responded to (saw 
+  # another persona), and retrieved relevant information. 
+  # Step 1: Retrieved may have multiple events represented in it. The first 
+  #         job here is to determine which of the events we want to focus 
+  #         on for the persona. 
+  #         <focused_event> takes the form of a dictionary like this: 
+  #         dictionary {["curr_event"] = <ConceptNode>, 
+  #                     ["events"] = [<ConceptNode>, ...], 
+  #                     ["thoughts"] = [<ConceptNode>, ...]}
+  focused_event = False
+  if retrieved.keys(): 
+    focused_event = _choose_retrieved(persona, retrieved)
+  
+  # Step 2: Once we choose an event, we need to determine whether the
+  #         persona will take any actions for the perceived event. There are
+  #         three possible modes of reaction returned by _should_react. 
+  #         a) "chat with {target_persona.name}"
+  #         b) "react"
+  #         c) False
+  if focused_event: 
+    reaction_mode = _should_react(persona, focused_event, personas)
+    if reaction_mode: 
+      # If we do want to chat, then we generate conversation 
+      if reaction_mode[:9] == "chat with":
+        _chat_react(maze, persona, focused_event, reaction_mode, personas)
+      elif reaction_mode[:8] == "approach":
+        # 走向目标人物
+        target_name = reaction_mode[9:].strip()
+        if target_name in personas:
+          target = personas[target_name]
+          if target.scratch.curr_tile:
+            # 只更新路径，不改变图标/描述
+            persona.scratch.planned_path = maze.find_path(
+              persona.scratch.curr_tile, target.scratch.curr_tile)
+            # 设置 act_event 用于追踪 approaching 状态（防止互相追）
+            persona.scratch.act_event = (persona.scratch.name, "approaching", target_name)
+            print(f"[Approach] {persona.scratch.name} walking towards {target_name} (path set)")
+      elif reaction_mode[:4] == "wait": 
+        _wait_react(persona, reaction_mode)
+
+  # Step 3: Chat-related state clean up. 
+  # If the persona is not chatting with anyone, we clean up any of the 
+  # chat-related states here. 
+  if persona.scratch.act_event[1] not in ["chat with", "approaching"]:
+    persona.scratch.chatting_with = None
+    persona.scratch.chat = None
+    persona.scratch.chatting_end_time = None
+  # We want to make sure that the persona does not keep conversing with each
+  # other in an infinite loop. So, chatting_with_buffer maintains a form of 
+  # buffer that makes the persona wait from talking to the same target 
+  # immediately after chatting once. We keep track of the buffer value here. 
+  curr_persona_chat_buffer = persona.scratch.chatting_with_buffer
+  for persona_name, buffer_count in curr_persona_chat_buffer.items():
+    if persona_name != persona.scratch.chatting_with: 
+      persona.scratch.chatting_with_buffer[persona_name] -= 1
+
+  # 安全检查：确保返回值不为None
+  if persona.scratch.act_address is None:
+    print(f"[Plan] WARNING: act_address is None for {persona.scratch.name}, using default")
+    curr_tile = persona.scratch.curr_tile
+    persona.scratch.act_address = f"<waiting> {curr_tile[0]} {curr_tile[1]}"
+  
+  return persona.scratch.act_address
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 

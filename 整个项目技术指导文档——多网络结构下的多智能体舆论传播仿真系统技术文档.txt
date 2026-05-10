@@ -1,0 +1,748 @@
+多网络结构下的多智能体舆论传播仿真系统技术文档
+1. 项目目标
+本系统用于模拟不同社会网络结构下，多个具有异质人格、认知偏好和关系感知能力的智能体，如何在公共事件中接收、判断、转发、质疑、辟谣或沉默。
+系统不再以传统 AI Town 的二维地图作为主要承载界面，而是改为网络结构可视化界面。每个节点代表一个智能体，每条边代表社会关系或信息通道。信息传播时，节点之间的边会出现动态光点，表示观点、谣言、事实信息、情绪或辟谣内容正在流动。
+核心研究问题：
+不同网络结构、不同智能体人格分布、不同信息内容和干预策略，会如何影响舆论扩散速度、情绪极化、谣言传播、辟谣效率和群体观点演化？
+2. 旧系统改造范围
+2.1 保留能力
+保留以下已有能力，并改造成新架构中的模块：
+1. 多源舆情采集能力
+用于接入微博、短视频评论、新闻评论或自定义输入文本。
+2. 情绪分析能力
+不只判断正向、负向、中性，还需要输出情绪强度、争议度、攻击性、焦虑度、信任度等指标。
+3. 角色建模能力
+原有角色画像、人物关系、长期记忆模块继续保留，但需要从“地图人物”改为“网络节点智能体”。
+4. 统计图表能力
+保留舆情热度、情绪变化、传播链路、核心节点识别等图表。
+5. 舆论传播按钮
+原来的“舆论传播”功能保留，但它不再只是展示情感分析结果，而是展示实时传播分析文档、网络指标、关键节点、意见领袖、风险判断和干预建议。
+2.2 删除或重构能力
+原功能	新设计
+AI Town 像素地图	改为网络结构可视化图
+线上聊天室	改为“全量言论抓取 / 言论洞察”面板
+专家会议室	改为“实时传播分析引擎”
+专家 Agent 发言	改为后台自动分析情绪、结构、敏感度、连通性、关键节点
+地图人物移动	改为节点状态变化与边上传播动画
+固定社区场景	改为可切换的网络结构场景
+3. 总体架构
+系统分为五层：
+text
+前端交互层
+  ├─ 网络结构可视化图
+  ├─ 智能体节点详情面板
+  ├─ 言论洞察面板
+  ├─ 舆论传播分析文档面板
+  └─ 网络结构切换按钮
+
+仿真调度层
+  ├─ 时间步推进器
+  ├─ 信息传播调度器
+  ├─ 智能体行为决策器
+  └─ 干预策略执行器
+
+智能体认知层
+  ├─ 人格参数
+  ├─ 立场参数
+  ├─ 记忆系统
+  ├─ 意见感知指数
+  ├─ 连通性感知指数
+  └─ 内容判断机制
+
+传播网络层
+  ├─ 随机网络
+  ├─ 小世界网络
+  ├─ 无标度网络
+  ├─ 规则网络
+  └─ 社区网络
+
+分析输出层
+  ├─ 情绪分析
+  ├─ 传播路径分析
+  ├─ 风险等级分析
+  ├─ 关键节点识别
+  ├─ 群体极化分析
+  └─ 动态报告生成
+4. 前端界面设计
+4.1 主界面布局
+text
+┌──────────────────────────────────────────────┐
+│ 顶部控制栏：网络结构切换 / 开始 / 暂停 / 重置 / 干预策略 │
+├──────────────────────────────┬───────────────┤
+│                              │ 智能体详情面板 │
+│      网络结构可视化主画布      ├───────────────┤
+│                              │ 言论洞察面板   │
+│                              ├───────────────┤
+│                              │ 舆论传播文档   │
+└──────────────────────────────┴───────────────┘
+4.2 网络结构可视化主画布
+每个智能体显示为：
+text
+节点圆形底座 + 小人形象 + 状态颜色 + 情绪环 + 传播状态标记
+节点视觉状态：
+状态	视觉表现
+未接触信息	灰色节点
+已接触但未表态	蓝色节点
+倾向传播	橙色节点
+强传播者	红色节点
+倾向辟谣	绿色节点
+免疫 / 疲劳	紫色节点
+观点摇摆	节点闪烁
+高影响力节点	节点外圈加粗
+高敏感节点	节点外圈脉冲动画
+边上传播动画：
+text
+当 Agent A 向 Agent B 传播信息时：
+A 节点 → 边上出现光点 → 光点移动到 B 节点 → B 节点状态更新
+4.3 顶部网络结构切换按钮
+按钮名称：
+text
+随机网络 / 熟人网络 / 中心化网络 / 封闭网络 / 社群网络
+点击后执行：
+text
+1. 暂停当前仿真
+2. 清空当前网络图
+3. 根据所选网络生成新拓扑
+4. 重新分配智能体人格和社会角色
+5. 重新初始化传播参数
+6. 刷新右侧分析文档
+5. 网络结构与场景设定
+注意：以下不是照抄传统网络模型，而是把网络结构转译为系统里的场景、人设分布、传播机制和可视化表现。
+5.1 随机网络：陌生人广场
+场景定位
+类似匿名论坛、开放评论区、临时热点话题广场。人与人之间没有稳定关系，连接随机，信息传播依赖偶然接触。
+适合研究
+text
+突发事件刚出现时，陌生用户之间如何快速形成第一波情绪扩散？
+人设分布
+人设类型	比例建议	行为特征
+好奇浏览者	35%	容易接触信息，但不一定传播
+情绪放大者	20%	遇到高刺激内容更容易转发
+怀疑观望者	20%	会等待更多证据
+随机传播者	15%	传播行为受情绪和偶然因素影响
+冷处理者	10%	信息疲劳，较少参与
+技术参数
+json
+{
+  "network_type": "random",
+  "scene_name": "anonymous_public_square",
+  "node_count": 80,
+  "edge_probability": 0.06,
+  "default_trust": 0.35,
+  "social_memory_strength": 0.15,
+  "emotion_amplification": 0.75
+}
+5.2 小世界网络：熟人圈层
+场景定位
+类似微信朋友圈、班级群、社区居民群、线下熟人社会。大多数人连接身边熟人，少数跨圈连接带来快速扩散。
+适合研究
+text
+熟人关系是否会提高谣言可信度？
+桥接节点是否会导致跨圈层扩散？
+人设分布
+人设类型	比例建议	行为特征
+熟人信任者	30%	更相信熟人转发的信息
+圈层维护者	20%	倾向于维持群体共识
+谨慎核实者	20%	会查看来源后再表态
+桥接传播者	10%	连接多个圈子，是跨圈传播关键
+沉默观察者	20%	不主动传播，但会受群体气氛影响
+技术参数
+json
+{
+  "network_type": "small_world",
+  "scene_name": "acquaintance_circle",
+  "node_count": 80,
+  "nearest_neighbors": 4,
+  "rewire_probability": 0.12,
+  "default_trust": 0.62,
+  "social_memory_strength": 0.7,
+  "emotion_amplification": 0.55
+}
+5.3 无标度网络：意见领袖平台
+场景定位
+类似微博、短视频平台、粉丝社区。少数高连接度节点具有极强影响力，大部分普通用户连接较少。
+适合研究
+text
+意见领袖转发、沉默或辟谣，对整体舆论走向有什么影响？
+人设分布
+人设类型	比例建议	行为特征
+高影响力发布者	5%	连接大量节点，能显著改变传播速度
+跟随型扩散者	35%	受核心节点影响明显
+情绪响应者	20%	对煽动性内容敏感
+事实核查者	10%	对高热内容进行反向校正
+普通围观者	30%	接收信息但传播概率低
+技术参数
+json
+{
+  "network_type": "scale_free",
+  "scene_name": "influencer_platform",
+  "node_count": 100,
+  "attach_edges": 3,
+  "hub_influence_boost": 1.8,
+  "follower_susceptibility": 0.72,
+  "fact_check_delay": 2
+}
+5.4 规则网络：封闭邻里
+场景定位
+类似封闭村落、单位组织、层级严密的小群体。每个人只和固定邻居交流，传播慢，但观点容易局部固化。
+适合研究
+text
+在信息通道有限的环境中，谣言是否更难被外部事实纠正？
+人设分布
+人设类型	比例建议	行为特征
+本地经验依赖者	30%	更相信身边人的经验
+传统权威信任者	20%	更容易相信组织或长辈意见
+保守沉默者	25%	不轻易改变观点
+局部传播者	15%	只在近邻范围内传播
+外部信息接触者	10%	少数连接外部信息源的人
+技术参数
+json
+{
+  "network_type": "regular",
+  "scene_name": "closed_neighborhood",
+  "node_count": 80,
+  "degree": 4,
+  "external_information_ratio": 0.1,
+  "belief_inertia": 0.8,
+  "spread_speed": 0.35
+}
+5.5 社区网络：兴趣部落
+场景定位
+类似豆瓣小组、B站分区、微信群、饭圈、业主群等。社区内部联系密集，社区之间靠少数桥接节点相连。
+适合研究
+text
+不同社群是否会形成不同版本的事实解释？
+跨社区传播会不会导致观点变形？
+人设分布
+人设类型	比例建议	行为特征
+社群核心成员	15%	影响本社区观点
+社群认同者	30%	倾向接受社区主流解释
+跨圈连接者	10%	在多个社群间转发信息
+观点防御者	15%	面对外部观点时更容易反驳
+理性整合者	10%	尝试综合多个来源
+潜水观察者	20%	阅读但低频发言
+技术参数
+json
+{
+  "network_type": "community",
+  "scene_name": "interest_tribes",
+  "node_count": 120,
+  "community_count": 5,
+  "intra_community_density": 0.45,
+  "inter_community_density": 0.04,
+  "community_identity_strength": 0.75
+}
+6. 智能体人设系统
+这里不直接照搬 SIR 或“传谣者 / 辟谣者”标签，而是设计成更适合 LLM Agent 的人格系统。
+6.1 智能体基础字段
+json
+{
+  "agent_id": "A023",
+  "name": "agent_023",
+  "network_role": "bridge_connector",
+  "persona_type": "cautious_verifier",
+  "stance": 0.15,
+  "emotion": {
+    "valence": -0.2,
+    "arousal": 0.6,
+    "anxiety": 0.5,
+    "anger": 0.3,
+    "trust": 0.4
+  },
+  "memory": [],
+  "connections": ["A004", "A031", "A056"],
+  "opinion_sensitivity_index": 0.68,
+  "connectivity_perception_index": 0.74,
+  "belief_inertia": 0.52,
+  "sharing_threshold": 0.61,
+  "debunking_threshold": 0.72
+}
+6.2 核心人格类型
+人格类型	说明	传播倾向
+情绪共振型	容易被高情绪文本影响	高
+证据核查型	会要求来源、证据和一致性	低传播，高辟谣
+社群认同型	倾向相信本圈层主流意见	中高
+权威依赖型	受官方、专家、核心节点影响明显	中
+影响力追随型	倾向跟随高连接节点	高
+反主流质疑型	倾向怀疑主流叙事	中高
+沉默观察型	接收信息但少发言	低
+桥接扩散型	不一定强烈相信，但会跨圈传播	高
+修正整合型	会综合多方信息后改变立场	中
+疲劳免疫型	多次接触后降低参与度	低
+7. 智能体状态设计
+系统不直接使用 S / I / R 作为界面标签，但内部可保留类似状态机。
+7.1 内部状态
+text
+UNAWARE      未接触
+EXPOSED      已接触
+EVALUATING   判断中
+AMPLIFYING   放大传播
+QUESTIONING  质疑
+DEBUNKING    辟谣
+SILENT       沉默
+IMMUNE       免疫
+FATIGUED     疲劳
+SHIFTED      立场转变
+7.2 状态转移逻辑
+text
+未接触 → 已接触
+已接触 → 判断中
+判断中 → 放大传播 / 质疑 / 辟谣 / 沉默
+放大传播 → 疲劳 / 继续传播
+质疑 → 辟谣 / 沉默 / 立场转变
+辟谣 → 免疫 / 继续纠正
+沉默 → 已接触 / 免疫
+8. 两个新增核心指标
+8.1 意见感知指数 OSI
+Opinion Sensitivity Index，表示智能体对他人观点变化的敏感程度。
+影响因素
+text
+1. 邻居中持相同观点的比例
+2. 邻居中高影响力节点的观点
+3. 最近接触到的信息强度
+4. 智能体自身人格
+5. 智能体当前情绪唤醒度
+计算建议
+text
+OSI_i(t) =
+w1 * neighbor_opinion_pressure
++ w2 * hub_opinion_pressure
++ w3 * content_emotion_intensity
++ w4 * persona_susceptibility
++ w5 * current_arousal
+输出范围：
+text
+0.0 - 1.0
+数值越高，代表该智能体越容易受他人观点影响。
+8.2 连通性感知指数 CPI
+Connectivity Perception Index，表示智能体对自身社会联系重要性的感知程度。
+影响因素
+text
+1. 自身节点度数
+2. 是否位于桥接位置
+3. 是否连接多个社区
+4. 是否被他人频繁引用
+5. 最近发言是否引发反馈
+计算建议
+text
+CPI_i(t) =
+v1 * normalized_degree
++ v2 * betweenness_centrality
++ v3 * cross_community_links
++ v4 * reply_count_score
++ v5 * perceived_social_responsibility
+输出范围：
+text
+0.0 - 1.0
+数值越高，代表该智能体越认为“我的发言会影响别人”。
+9. 信息传播决策机制
+每个时间步，系统对每个智能体执行一次决策。
+9.1 输入
+json
+{
+  "agent_profile": {},
+  "incoming_messages": [],
+  "neighbor_states": [],
+  "network_metrics": {},
+  "global_public_opinion": {},
+  "latest_analysis_report": {}
+}
+9.2 决策输出
+json
+{
+  "action": "share | question | debunk | ignore | modify | wait",
+  "message": "生成的发言文本",
+  "emotion_delta": {},
+  "stance_delta": 0.12,
+  "confidence": 0.77,
+  "target_agents": ["A031", "A044"]
+}
+9.3 决策规则
+text
+传播概率 =
+内容刺激度
+× 人格传播倾向
+× 意见感知指数
+× 邻居压力
+× 当前情绪唤醒度
+× 网络结构修正系数
+
+text
+辟谣概率 =
+事实核查倾向
+× 证据强度
+× 连通性感知指数
+× 责任感参数
+× 对原信息的不信任程度
+
+text
+沉默概率 =
+信息疲劳
+× 风险规避程度
+× 低连通性感知
+× 低情绪唤醒
+10. 言论抓取 / 言论洞察面板
+原“线上聊天室”改为“言论洞察面板”。
+10.1 面板功能
+实时显示：
+text
+1. 所有智能体生成的发言
+2. 发言时间
+3. 发言者状态
+4. 发言情绪
+5. 观点倾向
+6. 是否传播原始信息
+7. 是否产生变形表达
+8. 是否包含辟谣内容
+9. 被哪些节点接收
+10. 是否进入舆论传播文档
+10.2 言论总结
+每隔 N 个时间步生成一次总结：
+json
+{
+  "time_step": 12,
+  "summary": "当前讨论集中在事件责任归属和官方回应速度上。",
+  "dominant_emotion": "anxiety",
+  "emerging_claims": [
+    "有人认为官方反应过慢",
+    "有人质疑原始视频真实性",
+    "部分节点开始要求证据来源"
+  ],
+  "risk_points": [
+    "负面情绪正在向桥接节点集中",
+    "社区 3 内部出现高一致性误解"
+  ]
+}
+11. 舆论传播分析文档
+原“舆论传播按钮”保留，但点击后打开的是一个动态更新文档。
+11.1 文档内容结构
+text
+一、当前传播概况
+二、网络结构指标
+三、情绪与立场变化
+四、关键节点分析
+五、言论变形分析
+六、风险等级判断
+七、可能的下一步演化
+八、建议干预策略
+九、证据链与原始言论索引
+11.2 动态更新逻辑
+每个时间步或每 5 个时间步更新一次：
+text
+1. 从言论洞察面板读取最新发言
+2. 计算情绪、立场、传播路径
+3. 计算 OSI 和 CPI
+4. 识别高风险节点和桥接节点
+5. 生成结构化分析文档
+6. 推送到右侧“舆论传播文档”面板
+12. 后端模块设计
+12.1 NetworkGenerator
+负责生成网络结构。
+python
+class NetworkGenerator:
+    def generate_random_network(self, n, p):
+        pass
+
+    def generate_small_world_network(self, n, k, p):
+        pass
+
+    def generate_scale_free_network(self, n, m):
+        pass
+
+    def generate_regular_network(self, n, k):
+        pass
+
+    def generate_community_network(self, n, community_count):
+        pass
+12.2 AgentFactory
+负责根据网络结构分配不同人设。
+python
+class AgentFactory:
+    def create_agents(self, network_type, node_count):
+        pass
+
+    def assign_persona_by_network(self, network_type, graph):
+        pass
+
+    def assign_initial_state(self, agent):
+        pass
+重点要求：
+text
+不同网络结构必须使用不同人设分布。
+不能所有网络都套同一批智能体。
+12.3 SimulationEngine
+负责推进仿真。
+python
+class SimulationEngine:
+    def step(self):
+        self.collect_messages()
+        self.update_agent_perception()
+        self.decide_actions()
+        self.propagate_messages()
+        self.update_metrics()
+        self.generate_report()
+12.4 AnalysisEngine
+负责实时分析。
+python
+class AnalysisEngine:
+    def analyze_sentiment(self, messages):
+        pass
+
+    def calculate_opinion_sensitivity(self, agent, graph):
+        pass
+
+    def calculate_connectivity_perception(self, agent, graph):
+        pass
+
+    def detect_key_nodes(self, graph):
+        pass
+
+    def detect_risk_clusters(self, graph):
+        pass
+
+    def generate_public_opinion_report(self):
+        pass
+13. 前端组件设计
+建议组件结构：
+text
+/src
+  /components
+    NetworkCanvas.tsx
+    AgentNode.tsx
+    EdgeFlowAnimation.tsx
+    NetworkSwitchBar.tsx
+    AgentDetailPanel.tsx
+    SpeechInsightPanel.tsx
+    OpinionReportPanel.tsx
+    MetricDashboard.tsx
+  /store
+    simulationStore.ts
+    networkStore.ts
+    agentStore.ts
+  /api
+    simulationApi.ts
+    reportApi.ts
+13.1 NetworkCanvas
+负责绘制节点、边和传播动画。
+输入：
+typescript
+type NetworkCanvasProps = {
+  nodes: AgentNode[];
+  edges: NetworkEdge[];
+  activeFlows: MessageFlow[];
+  selectedNetworkType: NetworkType;
+}
+13.2 AgentNode
+节点显示：
+typescript
+type AgentNode = {
+  id: string;
+  personaType: string;
+  currentState: AgentState;
+  emotionScore: number;
+  stanceScore: number;
+  osi: number;
+  cpi: number;
+  isHub: boolean;
+  isBridge: boolean;
+}
+13.3 SpeechInsightPanel
+显示所有抓取言论。
+typescript
+type SpeechRecord = {
+  id: string;
+  timeStep: number;
+  agentId: string;
+  content: string;
+  sentiment: string;
+  emotionIntensity: number;
+  stance: number;
+  actionType: string;
+  receivers: string[];
+}
+13.4 OpinionReportPanel
+显示实时生成的舆论传播文档。
+typescript
+type OpinionReport = {
+  timeStep: number;
+  overview: string;
+  emotionTrend: string;
+  keyNodes: string[];
+  riskClusters: string[];
+  misinformationMutation: string[];
+  interventionSuggestions: string[];
+}
+14. LLM 使用方式
+LLM 不负责直接决定全部传播结果，而是负责生成个体层面的语言表达和心理解释。
+14.1 LLM 输入 Prompt
+text
+你是一个舆论传播仿真系统中的智能体。
+你的身份、人设、社会连接和当前情绪如下：
+
+【智能体信息】
+{agent_profile}
+
+【你刚刚看到的信息】
+{incoming_messages}
+
+【你周围邻居的态度】
+{neighbor_opinions}
+
+【当前事件背景】
+{event_context}
+
+请判断你下一步会怎么做：
+1. 转发
+2. 质疑
+3. 辟谣
+4. 沉默
+5. 改写后传播
+6. 等待更多信息
+
+请输出 JSON，不要输出解释性文字。
+14.2 LLM 输出格式
+json
+{
+  "action": "question",
+  "message": "这个说法有没有更可靠的来源？现在只看到截图，不太能判断。",
+  "emotion_change": {
+    "anxiety": 0.05,
+    "anger": -0.02,
+    "trust": -0.1
+  },
+  "stance_change": -0.08,
+  "reason_code": "lack_of_evidence"
+}
+15. 干预策略设计
+系统应支持治理策略模拟。
+15.1 策略类型
+text
+1. 官方澄清
+2. 权威媒体发布
+3. 核心节点沟通
+4. 社区定向解释
+5. 延迟回应
+6. 情绪安抚
+7. 证据补充
+8. 平台限流
+9. 评论区置顶事实
+15.2 策略注入方式
+json
+{
+  "intervention_type": "targeted_clarification",
+  "target_nodes": ["A005", "A018"],
+  "content": "官方发布了完整时间线和现场监控说明。",
+  "credibility": 0.85,
+  "emotion_tone": "calm",
+  "start_time_step": 8
+}
+15.3 干预效果指标
+text
+1. 谣言传播峰值是否下降
+2. 负面情绪是否下降
+3. 辟谣信息是否到达关键节点
+4. 群体极化是否缓解
+5. 高 CPI 节点是否参与澄清
+6. 高 OSI 节点是否发生立场转变
+16. 数据库表设计
+16.1 agents
+sql
+CREATE TABLE agents (
+  id TEXT PRIMARY KEY,
+  name TEXT,
+  persona_type TEXT,
+  network_role TEXT,
+  current_state TEXT,
+  stance REAL,
+  emotion_json TEXT,
+  osi REAL,
+  cpi REAL,
+  memory_json TEXT
+);
+16.2 network_edges
+sql
+CREATE TABLE network_edges (
+  id TEXT PRIMARY KEY,
+  source_agent_id TEXT,
+  target_agent_id TEXT,
+  weight REAL,
+  relation_type TEXT,
+  trust_score REAL
+);
+16.3 speech_records
+sql
+CREATE TABLE speech_records (
+  id TEXT PRIMARY KEY,
+  time_step INTEGER,
+  agent_id TEXT,
+  content TEXT,
+  action_type TEXT,
+  sentiment TEXT,
+  emotion_intensity REAL,
+  stance REAL,
+  receivers_json TEXT
+);
+16.4 simulation_reports
+sql
+CREATE TABLE simulation_reports (
+  id TEXT PRIMARY KEY,
+  time_step INTEGER,
+  network_type TEXT,
+  overview TEXT,
+  risk_level TEXT,
+  key_nodes_json TEXT,
+  risk_clusters_json TEXT,
+  suggestions_json TEXT
+);
+17. 最小可行版本 MVP
+第一阶段建议先实现这些功能：
+五种网络结构生成
+每种网络结构对应一套不同人设分布
+节点 + 小人 + 边光点传播动画
+智能体状态机
+基础 LLM 发言生成
+情绪分析
+OSI / CPI 两个指标
+言论洞察面板
+舆论传播动态文档
+网络结构切换按钮
+暂时不做：
+复杂 3D 可视化
+完整真实平台 API 接入
+大规模上千节点仿真
+复杂专家会议对话
+高精度因果推断
+18. 方案评估
+18.1 优点
+这个方向比原方案更适合论文化。原方案更像一个功能展示平台，有采集、聊天室、专家会议和图表；新方案有明确研究变量：
+网络结构 → 智能体人格分布 → 个体传播决策 → 群体舆论演化结果
+这更容易写成论文中的实验设计。
+18.2 和已有舆论传播模型的区别
+传统模型通常关注群体比例变化，例如多少人相信、多少人传播、多少人免疫。你的方案可以强调：
+
+单个智能体如何理解内容
+单个智能体如何受邻居影响
+单个智能体如何根据社会关系决定是否发言
+不同网络结构下，个体心理机制如何放大或抑制传播
+
+这个角度更像“基于大模型智能体的微观传播机制仿真”。
+18.3 风险
+主要风险有三个：
+第一，不能只靠 LLM 自由聊天。否则实验不可控，结果难复现。必须用公式、状态机和固定参数约束 LLM。
+第二，网络结构不能只是视觉效果。每种网络都必须真正影响传播概率、邻居压力、关键节点、信息路径和人设分配。
+第三，论文里不能声称系统能准确预测真实舆情。更稳妥的表述是：
+本系统用于解释不同网络结构和个体行为机制下的舆论演化差异，适用于小样本案例推演、机制解释和策略对比，不直接等同于真实平台的大规模预测系统。
+18.4 最推荐的论文题目方向
+可以考虑：
+《基于多网络结构与大模型智能体的公共舆论传播演化仿真研究》
+或
+《面向公共危机舆情的多智能体传播仿真系统：网络结构、个体认知与干预策略》
+18.5 最核心创新点
+建议论文主打三个创新：
+网络结构驱动的多智能体舆论演化框架
+
+引入意见感知指数和连通性感知指数，刻画个体受他人意见影响和重视社会联系的程度
+
+将言论抓取、情绪分析、传播路径和动态报告合并成可解释的舆论传播分析闭环
+
+我的判断：这个方向是可以继续做的，而且比原来的“AI Town + 专家会议”更像论文系统。关键是把它从展示型项目变成可控实验平台：网络结构可切换，智能体参数可复现，传播过程可记录，结果指标可比较。

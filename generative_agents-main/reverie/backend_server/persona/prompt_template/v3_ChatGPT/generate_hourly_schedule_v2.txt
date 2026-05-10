@@ -1,0 +1,26 @@
+generate_hourly_schedule_v2.txt
+
+Variables: 
+!<INPUT 0>! -- Schedule format
+!<INPUT 1>! -- Commonset
+!<INPUT 2>! -- prior_schedule
+!<INPUT 3>! -- intermission_str
+!<INPUT 4>! -- intermission 2
+!<INPUT 5>! -- prompt_ending
+
+<commentblockmarker>###</commentblockmarker>
+Hourly schedule format: 
+!<INPUT 0>!
+===
+!<INPUT 1>!
+!<INPUT 2>!
+!<INPUT 3>!!<INPUT 4>!
+
+IMPORTANT: Complete the activity with a SHORT action phrase (2-8 words).
+DO NOT write explanations, schedules, or meta-descriptions.
+ONLY write what the person is physically doing.
+
+Good examples: "eating breakfast", "reading a book", "walking to the cafe", "sleeping"
+Bad examples: "a complete schedule for...", "here is the hourly plan...", "根据角色设定..."
+
+!<INPUT 5>!

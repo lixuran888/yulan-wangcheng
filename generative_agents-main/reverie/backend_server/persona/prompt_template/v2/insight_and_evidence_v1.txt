@@ -1,0 +1,21 @@
+insight_and_evidence_v1.txt
+
+Variables: 
+!<INPUT 0>! -- Numbered list of event/thought statements
+!<INPUT 1>! -- target persona name or "the conversation"
+
+<commentblockmarker>###</commentblockmarker>
+Input:
+!<INPUT 0>!
+
+Based on the above statements, provide !<INPUT 1>! high-level insights.
+
+IMPORTANT: You MUST follow this EXACT format for each insight:
+[insight text] (because of [number], [number], ...)
+
+Example output:
+1. People are worried about food safety (because of 0, 2, 5)
+2. The community needs better regulations (because of 1, 3)
+
+Now provide your insights:
+1.

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>&#22810;&#32593;&#32476;&#33286;&#35770;&#20256;&#25773;&#20223;&#30495;</title>
+  <style>
+    :root{--bg:#f4f6fa;--panel:#fff;--line:#d9e1ec;--text:#1f2937;--muted:#667085;--blue:#2f80ed;--orange:#f2994a;--red:#eb5757;--green:#219653;--purple:#7b61ff;--ink:#263238}
+    *{box-sizing:border-box}body{margin:0;height:100vh;overflow:hidden;font-family:"Microsoft YaHei","Segoe UI",Arial,sans-serif;background:var(--bg);color:var(--text)}
+    .app{height:100vh;display:grid;grid-template-rows:64px 1fr}.toolbar{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fff;border-bottom:1px solid var(--line)}
+    .brand{font-size:18px;font-weight:700;white-space:nowrap}.tabs{display:flex;gap:6px;flex-wrap:wrap}.actions{margin-left:auto;display:flex;gap:8px;align-items:center}
+    button{height:36px;padding:0 12px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);cursor:pointer;font:inherit}button.active{background:var(--ink);color:#fff;border-color:var(--ink)}
+    .primary{background:var(--blue);border-color:var(--blue);color:#fff}.danger{background:var(--red);border-color:var(--red);color:#fff}.ghost{background:#f8fafc}
+    .layout{height:100%;min-height:0;display:grid;grid-template-columns:360px minmax(520px,1fr)390px;grid-template-rows:minmax(0,1fr)260px;grid-template-areas:"live canvas coeff" "insight insight coeff"}
+    .panel{min-height:0;background:#fff;border:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden}.panel h2{margin:0;padding:11px 13px;font-size:15px;border-bottom:1px solid var(--line)}.body{padding:12px 13px;overflow:auto;min-height:0}
+    .live{grid-area:live;border-left:0;border-top:0;border-bottom:0}.canvas-wrap{grid-area:canvas;position:relative;min-width:0;min-height:0;background:linear-gradient(rgba(31,41,55,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(31,41,55,.04) 1px,transparent 1px);background-size:26px 26px}
+    .coeff{grid-area:coeff;border-right:0;border-top:0;border-bottom:0}.insight{grid-area:insight;border-left:0;border-bottom:0}
+    #networkCanvas{width:100%;height:100%;display:block}.scene-card{position:absolute;left:16px;top:16px;max-width:540px;background:rgba(255,255,255,.94);border:1px solid var(--line);border-radius:8px;padding:12px;line-height:1.55;box-shadow:0 8px 24px rgba(15,23,42,.08)}
+    .metric-bar{position:absolute;left:16px;right:16px;bottom:16px;display:grid;grid-template-columns:repeat(5,minmax(90px,1fr));gap:8px;pointer-events:none}.metric{background:rgba(255,255,255,.93);border:1px solid var(--line);border-radius:8px;padding:9px}.metric span{display:block;color:var(--muted);font-size:12px;margin-bottom:4px}.metric strong{font-size:17px}
+    .speech{border-left:3px solid var(--blue);padding:9px 10px;margin-bottom:10px;background:#f8fafc;border-radius:6px}.speech.reflect{border-left-color:var(--purple);background:#faf8ff}.meta{color:var(--muted);font-size:12px;margin-bottom:5px;display:flex;justify-content:space-between;gap:8px}.speech p{margin:0;line-height:1.55;font-size:13px}
+    .section{margin-bottom:12px;line-height:1.55;font-size:13px}.section strong{display:block;margin-bottom:5px}.tag-row{display:flex;flex-wrap:wrap;gap:6px}.tag{padding:4px 7px;border-radius:5px;background:#edf2f7;color:#344054;font-size:12px}
+    .agent-grid,.coef-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.agent-grid div,.coef-card{background:#f6f8fb;border-radius:6px;padding:8px;font-size:13px}.small-list{margin:0;padding-left:18px}.small-list li{margin-bottom:5px}
+    .modal{position:fixed;inset:0;display:none;z-index:20}.modal.open{display:block}.backdrop{position:absolute;inset:0;background:rgba(15,23,42,.48)}.dialog{position:absolute;inset:42px;display:grid;grid-template-rows:58px 1fr;background:#fff;border-radius:10px;box-shadow:0 24px 80px rgba(15,23,42,.28);overflow:hidden}
+    .dialog-head{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}.dialog-head h2{margin:0;font-size:18px}.dialog-actions{margin-left:auto;display:flex;gap:8px}.report-body{overflow:auto;background:#f7f9fc;padding:18px}
+    .report{max-width:1080px;margin:0 auto;display:grid;gap:14px}.report-title{background:#111827;color:#fff;border-radius:8px;padding:18px}.report-title h1{margin:0 0 8px;font-size:24px}.report-title p{margin:0;color:#d1d5db}
+    .report-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.report-stat{background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px}.report-stat span{display:block;color:var(--muted);font-size:12px}.report-stat strong{font-size:22px}
+    .report-card{background:#fff;border:1px solid var(--line);border-radius:8px;padding:15px}.report-card h3{margin:0 0 10px;font-size:16px}.report-card ul{margin:0;padding-left:20px}.report-card li{margin-bottom:6px;line-height:1.55}
+    .accent-blue{border-left:4px solid var(--blue)}.accent-orange{border-left:4px solid var(--orange)}.accent-green{border-left:4px solid var(--green)}.accent-purple{border-left:4px solid var(--purple)}.evidence{background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;padding:9px;margin-bottom:8px;line-height:1.55}
+    .markdown-source{display:none;white-space:pre-wrap;background:#0f172a;color:#e5e7eb;padding:16px;border-radius:8px;line-height:1.55}.markdown-source.open{display:block}
+    @media(max-width:1180px){body{overflow:auto}.app{height:auto;min-height:100vh}.toolbar{align-items:flex-start;flex-direction:column}.actions{margin-left:0}.layout{display:block}.panel{max-height:520px;border-left:0;border-right:0}.canvas-wrap{height:68vh}.dialog{inset:12px}.report-grid{grid-template-columns:repeat(2,1fr)}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="toolbar">
+      <div class="brand">&#22810;&#32593;&#32476;&#33286;&#35770;&#20256;&#25773;&#20223;&#30495;</div>
+      <nav id="networkTabs" class="tabs"></nav>
+      <div class="actions">
+        <button id="reportBtn">&#25171;&#24320;&#30740;&#31350;&#35777;&#25454;&#25991;&#26723;</button>
+        <button id="startBtn" class="primary">&#24320;&#22987;</button>
+        <button id="pauseBtn">&#26242;&#20572;</button>
+        <button id="stepBtn">&#21333;&#27493;</button>
+        <button id="interventionBtn">&#24178;&#39044;</button>
+        <button id="resetBtn" class="danger">&#37325;&#32622;</button>
+      </div>
+    </header>
+    <main class="layout">
+      <aside class="panel live"><h2>&#24038;&#20391;&#33286;&#35770;&#23454;&#20917;</h2><div id="speechPanel" class="body"></div></aside>
+      <section class="canvas-wrap"><canvas id="networkCanvas"></canvas><div id="sceneCard" class="scene-card"></div><div id="metricBar" class="metric-bar"></div></section>
+      <aside class="panel coeff"><h2>&#21491;&#20391;&#19977;&#31867;&#31995;&#25968;&#25235;&#21462;</h2><div id="coeffPanel" class="body"></div></aside>
+      <section class="panel insight"><h2>&#24213;&#37096;&#27934;&#23519;&#21453;&#39304; / Agent Details</h2><div id="agentDetail" class="body"></div></section>
+    </main>
+  </div>
+
+  <div id="reportModal" class="modal">
+    <div id="modalBackdrop" class="backdrop"></div>
+    <section class="dialog">
+      <header class="dialog-head">
+        <h2>&#20256;&#25773;&#26426;&#21046;&#19982;&#35777;&#25454;&#25991;&#26723;</h2>
+        <div class="dialog-actions">
+          <button id="toggleMarkdownBtn" class="ghost">Markdown &#28304;&#25991;</button>
+          <button id="closeReportBtn" class="danger">&#20851;&#38381;</button>
+        </div>
+      </header>
+      <div class="report-body">
+        <article id="renderedReport" class="report"></article>
+        <pre id="markdownSource" class="markdown-source"></pre>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const $=id=>document.getElementById(id),canvas=$("networkCanvas"),ctx=canvas.getContext("2d");
+    const networkTabs=$("networkTabs"),metricBar=$("metricBar"),sceneCard=$("sceneCard"),speechPanel=$("speechPanel"),coeffPanel=$("coeffPanel"),agentDetail=$("agentDetail");
+    const reportModal=$("reportModal"),renderedReport=$("renderedReport"),markdownSource=$("markdownSource"),toggleMarkdownBtn=$("toggleMarkdownBtn");
+    const colors={UNAWARE:"#9aa4b2",EXPOSED:"#2f80ed",LISTENING:"#56a3d9",TALKING:"#f2994a",QUESTIONING:"#f2c94c",DEBUNKING:"#219653",SILENT:"#8e99ab",REFLECTING:"#7b61ff"};
+    let sim=null,positions=new Map(),selectedAgentId=null,timer=null,lastLayoutKey="",isRunning=false;
+    async function api(url,payload){const opt=payload?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}:{};const r=await fetch(url,opt);if(!r.ok)throw new Error(await r.text());return r.json()}
+    async function loadState(){sim=await api("/api/simulation/state/");ensureLayout();renderAll()}
+    async function reset(type){stop();sim=await api("/api/simulation/reset/",{network_type:type||sim.networkType});selectedAgentId=null;lastLayoutKey="";ensureLayout();renderAll()}
+    async function step(intervention){sim=await api("/api/simulation/step/",intervention?{intervention}:{});ensureLayout();renderAll()}
+    function start(){if(!timer){isRunning=true;timer=setInterval(()=>step().catch(stop),1800);renderCanvas();renderMetrics()}}
+    function stop(){if(timer)clearInterval(timer);timer=null;isRunning=false;if(sim){sim.activeFlows=[];renderCanvas();renderMetrics()}}
+    function ensureLayout(){const dpr=window.devicePixelRatio||1,rect=canvas.getBoundingClientRect();canvas.width=Math.max(320,rect.width*dpr);canvas.height=Math.max(320,rect.height*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);const key=`${sim.networkType}:${sim.nodes.length}:${Math.round(rect.width)}:${Math.round(rect.height)}`;if(key===lastLayoutKey)return;lastLayoutKey=key;positions=new Map();const w=rect.width,h=rect.height,cx=w/2,cy=h/2,radius=Math.min(w,h)*.38;sim.nodes.forEach((node,i)=>{const a=Math.PI*2*i/sim.nodes.length-Math.PI/2,j=.86+(i%5)/28;positions.set(node.id,{x:cx+Math.cos(a)*radius*j,y:cy+Math.sin(a)*radius*j})})}
+    function renderAll(){renderTabs();renderScene();renderMetrics();renderCanvas();renderSpeeches();renderCoefficients();renderAgentDetail();if(reportModal.classList.contains("open"))renderResearchReport()}
+    function renderTabs(){networkTabs.innerHTML=sim.scenarios.map(s=>`<button class="${s.type===sim.networkType?"active":""}" data-type="${s.type}" title="${s.model} / ${s.sceneName}">${s.label}</button>`).join("");networkTabs.querySelectorAll("button").forEach(b=>b.onclick=()=>reset(b.dataset.type))}
+    function renderScene(){sceneCard.innerHTML=`<strong>${sim.sceneName} / ${sim.model}</strong><div>${sim.description}</div>`}
+    function renderMetrics(){const m=sim.report.networkMetrics;metricBar.innerHTML=[["时间步",sim.timeStep],["平均度",m.averageDegree],["情绪",m.averageEmotion],["平均 OSI",m.averageOsi],["状态",isRunning?"运行中":"已暂停"]].map(x=>`<div class="metric"><span>${x[0]}</span><strong>${x[1]}</strong></div>`).join("")}
+    function renderCanvas(){if(!sim)return;const rect=canvas.getBoundingClientRect();ctx.clearRect(0,0,rect.width,rect.height);sim.edges.forEach(e=>{const a=positions.get(e.source),b=positions.get(e.target);if(!a||!b)return;ctx.strokeStyle=e.relationType&&e.relationType.includes("紧张")?"rgba(235,87,87,.25)":"rgba(69,84,105,.16)";ctx.lineWidth=e.relationType&&e.relationType.includes("紧张")?1.5:1;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke()});
+      if(isRunning){const t=performance.now()/1000;sim.activeFlows.forEach((f,i)=>{const a=positions.get(f.source),b=positions.get(f.target);if(!a||!b)return;const p=(t*1.2+i*.13)%1;ctx.fillStyle=f.actionType==="debunk"?"#27ae60":"#ff7a45";ctx.beginPath();ctx.arc(a.x+(b.x-a.x)*p,a.y+(b.y-a.y)*p,3.5,0,Math.PI*2);ctx.fill()})}
+      const t=performance.now()/1000;sim.nodes.forEach(n=>{const p=positions.get(n.id);if(!p)return;const r=n.isHub?9:n.isBridge?7.5:6.5,pulse=n.osi>.72?Math.sin(t*5)*2+4:0;if(n.isHub||n.isBridge||n.osi>.72){ctx.strokeStyle=n.isHub?"#111827":n.isBridge?"#eb5757":"rgba(235,87,87,.52)";ctx.lineWidth=n.isHub?2.4:1.6;ctx.beginPath();ctx.arc(p.x,p.y,r+4+pulse,0,Math.PI*2);ctx.stroke()}ctx.fillStyle=colors[n.currentState]||"#9aa4b2";ctx.beginPath();ctx.arc(p.x,p.y,r,0,Math.PI*2);ctx.fill();ctx.strokeStyle=selectedAgentId===n.id?"#111827":"#fff";ctx.lineWidth=selectedAgentId===n.id?3:1.5;ctx.stroke()})}
+    function renderSpeeches(){const rows=[...sim.speeches].reverse();speechPanel.innerHTML=rows.length?rows.map(s=>`<article class="speech ${s.recordType==="reflection"?"reflect":""}"><div class="meta"><span>T${s.timeStep} ${s.agentName}</span><span>${s.status} / ${s.actionType}</span></div><p>${s.content}</p><div class="meta"><span>情绪 ${s.emotionIntensity} | 立场 ${s.stance}</span><span>OSI ${s.osi} / CPI ${s.cpi}</span></div></article>`).join(""):"<p>等待仿真产生言论。</p>"}
+    function renderCoefficients(){const rows=sim.report.coefficients||[];coeffPanel.innerHTML=`<div class="section"><strong>抓取对象：情绪 / OSI / CPI / H / θ</strong>持续记录每个 Agent 的解释系数，为论文分析提供可追溯变量。</div><div class="coef-grid">${rows.map(r=>`<div class="coef-card"><strong>${r.id} ${r.name||""}</strong><br>${r.personaType}<br>情绪 ${r.emotion}<br>OSI ${r.osi}<br>CPI ${r.cpi}<br>H ${r.pressure} / θ ${r.threshold}<br>${r.state}</div>`).join("")}</div>`}
+    function renderAgentDetail(){const a=sim.nodes.find(n=>n.id===selectedAgentId)||sim.nodes.find(n=>n.isHub)||sim.nodes[0];if(!a)return;selectedAgentId=a.id;agentDetail.innerHTML=`<div class="section"><strong>${a.id} / ${a.name}</strong>${a.profile}</div><div class="agent-grid"><div>人设<br><strong>${a.personaType}</strong></div><div>网络角色<br><strong>${a.networkRole}</strong></div><div>状态<br><strong>${a.stateLabel}</strong></div><div>度数<br><strong>${a.degree}</strong></div><div>情绪<br><strong>${a.emotionScore}</strong></div><div>立场<br><strong>${a.stanceScore}</strong></div><div>OSI<br><strong>${a.osi}</strong></div><div>CPI<br><strong>${a.cpi}</strong></div></div><div class="section"><strong>社会关系</strong><ul class="small-list">${a.relations.map(r=>`<li>${r.target_id}: ${r.relation_type}, 信任 ${r.trust_score}, 互动 ${r.interaction_count}</li>`).join("")}</ul></div><div class="section"><strong>最近记忆</strong><ul class="small-list">${a.memories.map(m=>`<li>${m.kind}: ${m.content}</li>`).join("")}</ul></div><div class="section"><strong>洞察反思</strong><ul class="small-list">${(a.reflections.length?a.reflections:[{content:"尚未触发反思。"}]).map(m=>`<li>${m.content}</li>`).join("")}</ul></div>`}
+    function renderResearchReport(){const m=sim.report.networkMetrics, records=sim.report.researchRecords||{}, evidence=records.dialogueEvidence||[], keyRows=records.keyNodeTable||[], reflections=sim.report.reflectionDigest||[], states=sim.report.stateCounts||{}, constraints=sim.report.modelConstraints||{};markdownSource.textContent=sim.report.markdownReport||"";renderedReport.innerHTML=`<section class="report-title"><h1>社区网络传播机制解释报告</h1><p>面向论文记录：社区结构、复杂阈值约束、传播证据、关键节点、情绪/OSI/CPI/H/θ转折与反黑箱解释。</p></section><section class="report-grid"><div class="report-stat"><span>时间步</span><strong>${sim.timeStep}</strong></div><div class="report-stat"><span>节点 / 边</span><strong>${m.nodeCount}/${m.edgeCount}</strong></div><div class="report-stat"><span>平均 OSI</span><strong>${m.averageOsi}</strong></div><div class="report-stat"><span>平均 CPI</span><strong>${m.averageCpi}</strong></div></section><section class="report-card accent-blue"><h3>一、实验网络设定</h3><ul><li>网络类型：${sim.sceneName}，${sim.model}</li><li>结构说明：${sim.description}</li><li>模型约束：${constraints.activationRule||"H_i(t) >= theta_i"}，社区内权重 ${constraints.intraCommunityWeight||1.0}，跨社区权重 ${constraints.interCommunityWeight||0.45}，桥接加权 ${constraints.bridgeBonus||1.3}</li><li>社区内边比例：${m.modularityProxy}</li><li>状态计数：${Object.entries(states).map(([k,v])=>`${k} ${v}`).join("；")||"暂无"}</li><li>当前风险等级：${sim.report.riskLevel}</li><li>情绪趋势：${sim.report.emotionTrend}</li></ul></section><section class="report-card accent-orange"><h3>二、关键节点与解释变量</h3>${keyRows.length?keyRows.map(r=>`<div class="evidence"><strong>${r.id} ${r.name}</strong>｜${r.persona}<br>度数 ${r.degree} / 情绪 ${r.emotion} / OSI ${r.osi} / CPI ${r.cpi} / H ${r.pressure} / θ ${r.threshold}<br><span class="meta">最近记忆：${r.memory}</span></div>`).join(""):"<p>暂无关键节点记录。</p>"}</section><section class="report-card accent-green"><h3>三、代表性言论证据</h3>${evidence.length?evidence.map(s=>`<div class="evidence"><strong>T${s.timeStep} ${s.speaker}</strong> -> ${(s.receivers||[]).join(", ")} ${s.touchesKeyNode?"<span class='tag'>触达关键节点</span>":""}<br>${s.content}<br><span class="meta">动作 ${s.actionType} / 情绪 ${s.emotion} / OSI ${s.osi} / CPI ${s.cpi}</span></div>`).join(""):"<p>尚无足够对话证据。</p>"}</section><section class="report-card accent-purple"><h3>四、洞察反思与转折点</h3><ul>${reflections.map(x=>`<li>${x}</li>`).join("")}</ul></section><section class="report-card"><h3>五、反黑箱说明</h3><p>该文档记录了社区结构、交互边、Agent 人设记忆、复杂阈值变量和代表性言论。论文中可以据此解释为什么社区内部更容易形成强化，为什么跨社区传播需要桥接节点，以及某个节点为何进入传播、质疑、辟谣或沉默状态。</p></section>`}
+    canvas.addEventListener("click",e=>{const rect=canvas.getBoundingClientRect(),x=e.clientX-rect.left,y=e.clientY-rect.top;let nearest=null,best=Infinity;sim.nodes.forEach(n=>{const p=positions.get(n.id);if(!p)return;const d=Math.hypot(p.x-x,p.y-y);if(d<best){best=d;nearest=n}});if(nearest&&best<18){selectedAgentId=nearest.id;renderAll()}});
+    $("startBtn").onclick=start;$("pauseBtn").onclick=stop;$("stepBtn").onclick=()=>step();$("resetBtn").onclick=()=>reset();$("interventionBtn").onclick=()=>step({target_nodes:sim.report.keyNodes.slice(0,3),content:"补充完整时间线、来源说明和现场证据，建议关键节点引用。"});
+    $("reportBtn").onclick=()=>{reportModal.classList.add("open");markdownSource.classList.remove("open");renderResearchReport()};$("closeReportBtn").onclick=()=>reportModal.classList.remove("open");$("modalBackdrop").onclick=()=>reportModal.classList.remove("open");toggleMarkdownBtn.onclick=()=>markdownSource.classList.toggle("open");
+    window.addEventListener("resize",()=>{lastLayoutKey="";if(sim){ensureLayout();renderAll()}});function loop(){if(sim)renderCanvas();requestAnimationFrame(loop)}loadState().then(loop);
+  </script>
+</body>
+</html>
