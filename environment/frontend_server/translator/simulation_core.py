@@ -652,7 +652,7 @@ class AnalysisEngine:
         return [a.id for a in ranked[:6]]
 
     def coefficients(self):
-        return sorted([{"id": a.id, "name": a.name, "personaType": a.persona_type, "emotion": round((a.arousal + a.anxiety + a.anger) / 3, 3), "osi": round(a.osi, 3), "cpi": round(a.cpi, 3), "threshold": round(a.activation_threshold, 3), "pressure": round(a.activation_pressure, 3), "state": STATE_LABELS[a.state]} for a in self.agents.values()], key=lambda x: x["emotion"] + x["osi"] + x["cpi"], reverse=True)
+        return sorted([{"id": a.id, "name": a.name, "personaType": a.persona_type, "emotion": round((a.arousal + a.anxiety + a.anger) / 3, 3), "osi": round(a.osi, 3), "cpi": round(a.cpi, 3), "threshold": round(a.activation_threshold, 3), "pressure": round(a.activation_pressure, 3), "state": STATE_LABELS[a.state], "stateKey": a.state} for a in self.agents.values()], key=lambda x: x["emotion"] + x["osi"] + x["cpi"], reverse=True)
 
     def research_records(self, speeches, key_nodes):
         key_set = set(key_nodes)
@@ -785,7 +785,7 @@ class SimulationEngine:
         return self.snapshot()
 
     def snapshot(self):
-        return {"networkType": self.network_type, "sceneName": self.config["scene_name"], "model": self.config["model"], "description": self.config["description"], "timeStep": self.time_step, "nodes": [self._agent_payload(a) for a in self.agents.values()], "edges": [self._edge(a, b) for a, b in sorted(self.edges)], "activeFlows": self.active_flows, "speeches": self.speeches[-180:], "report": self.report, "stateLabels": STATE_LABELS, "scenarios": [{"type": key, "label": value["label"], "sceneName": value["scene_name"], "model": value["model"]} for key, value in NETWORK_SCENARIOS.items()]}
+        return {"networkType": self.network_type, "sceneName": self.config["scene_name"], "model": self.config["model"], "description": self.config["description"], "timeStep": self.time_step, "nodes": [self._agent_payload(a) for a in self.agents.values()], "edges": [self._edge(a, b) for a, b in sorted(self.edges)], "activeFlows": self.active_flows, "speeches": self.speeches[-180:], "report": self.report, "stateLabels": STATE_LABELS, "scenarios": [{"type": key, "label": value["label"], "sceneName": value["scene_name"], "model": value["model"], "description": value["description"]} for key, value in NETWORK_SCENARIOS.items()]}
 
     def _agent_payload(self, a: Agent):
         return {"id": a.id, "name": a.name, "personaType": a.persona_type, "networkRole": a.network_role, "community": a.community, "profile": a.profile, "currentState": a.state, "stateLabel": STATE_LABELS[a.state], "emotionScore": round((a.arousal + a.anxiety + a.anger) / 3, 3), "stanceScore": round(a.stance, 3), "osi": round(a.osi, 3), "cpi": round(a.cpi, 3), "pressure": round(a.activation_pressure, 3), "threshold": round(a.activation_threshold, 3), "skepticism": round(a.skepticism, 3), "socialResponsibility": round(a.social_responsibility, 3), "isHub": a.network_role == "bridge_connector", "isBridge": a.network_role == "bridge_connector", "degree": len(self.adjacency[a.id]), "relations": [vars(r) for r in list(a.relations.values())[:10]], "memories": [vars(n) for n in a.memory.associative[-8:]], "reflections": [vars(n) for n in a.memory.reflections[-5:]]}

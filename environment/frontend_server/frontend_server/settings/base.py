@@ -110,9 +110,9 @@ TIME_ZONE = 'UTC'
 
 USE_I18N = True
 
-USE_L10N = True
-
 USE_TZ = True
+
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # 日志配置：禁用Django默认的请求日志，改用自定义中间件控制
 LOGGING = {
