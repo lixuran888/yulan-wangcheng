@@ -1,6 +1,7 @@
 ﻿# -*- coding: utf-8 -*-
 # Utility configuration for the Reverie backend.
 # 将 DeepSeek API Key 与使用者信息填入占位符即可。
+import os
 
 # ============================================================================
 # LLM API 配置 - 支持本地模型和云端 API
@@ -18,7 +19,7 @@ LOCAL_MODEL_NAME = "deepseek-R1:8b"  # 默认值，如果配置文件中有设�
 LOCAL_API_KEY = "ollama"  # 本地 API 通常不需要真实 key，但有些服务需要，可以设为 "ollama" 或留空
 
 # 云端 API 配置（当 USE_LOCAL_MODEL = False 时生效）
-deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", "")
+deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", "sk-145f4229320c4631b840d618d6e0071b")
 DEEPSEEK_API_BASE = "https://api.deepseek.com/v1"
 DEEPSEEK_MODEL_NAME = "deepseek-chat"
 

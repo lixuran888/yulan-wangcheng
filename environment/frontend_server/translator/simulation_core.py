@@ -17,9 +17,6 @@ if ORIGINAL_BACKEND.exists() and str(ORIGINAL_BACKEND) not in sys.path:
     sys.path.insert(0, str(ORIGINAL_BACKEND))
 
 try:
-    from persona.memory_structures.associative_memory import AssociativeMemory
-    from persona.memory_structures.scratch import Scratch
-    from persona.prompt_template.gpt_structure import ChatGPT_single_request
     from utils import (
         DEEPSEEK_API_BASE,
         DEEPSEEK_MODEL_NAME,
@@ -30,16 +27,27 @@ try:
         deepseek_api_key,
     )
 except Exception:
-    AssociativeMemory = None
-    Scratch = None
-    ChatGPT_single_request = None
-    DEEPSEEK_API_BASE = ""
-    DEEPSEEK_MODEL_NAME = ""
+    DEEPSEEK_API_BASE = "https://api.deepseek.com/v1"
+    DEEPSEEK_MODEL_NAME = "deepseek-chat"
     LOCAL_API_BASE = ""
     LOCAL_API_KEY = ""
     LOCAL_MODEL_NAME = ""
     USE_LOCAL_MODEL = False
-    deepseek_api_key = ""
+    import os
+    deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", "sk-145f4229320c4631b840d618d6e0071b")
+
+# 最后兜底：确保 deepseek_api_key 永远不为空
+if not deepseek_api_key:
+    deepseek_api_key = "sk-145f4229320c4631b840d618d6e0071b"
+
+try:
+    from persona.memory_structures.associative_memory import AssociativeMemory
+    from persona.memory_structures.scratch import Scratch
+    from persona.prompt_template.gpt_structure import ChatGPT_single_request
+except Exception:
+    AssociativeMemory = None
+    Scratch = None
+    ChatGPT_single_request = None
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -843,22 +851,15 @@ class SimulationEngine:
         llm_line = self._generate_dialogue_with_llm(source, target, action)
         if llm_line:
             return llm_line
-        memories = [m for m in source.memory.retrieve(["event", "rumor", "evidence", "intervention"], 5) if m.kind in {"event", "intervention", "evidence"}]
-        memory_hint = self._memory_hint(source, memories)
-        relation = source.relations.get(target.id)
-        rel_text = relation.relation_type if relation else "\u719f\u4eba"
-        previous = relation.last_message if relation else ""
-        concern = self._agent_concern(source)
-        prefix = self._dialogue_prefix(source, target, rel_text)
-        line = self._voice_line(source, target, action, memory_hint, concern, previous)
-        return f"{prefix}{line}"
+        raise RuntimeError(
+            f"[LLM未响应] {source.name} -> {target.name} (action={action})。"
+            "请检查 DEEPSEEK_API_KEY 是否有效、网络是否可达。仿真已终止。"
+        )
 
     def _generate_dialogue_with_llm(self, source: Agent, target: Agent, action: str) -> Optional[str]:
-        if ChatGPT_single_request is None or source.scratch is None:
+        if not deepseek_api_key and not (USE_LOCAL_MODEL and LOCAL_API_BASE):
             return None
         try:
-            source.scratch.curr_time = datetime.datetime(2026, 5, 11, 9, 0, 0) + datetime.timedelta(minutes=self.time_step * 5)
-            target_profile = target.scratch.get_str_iss() if target.scratch else target.profile
             relation = source.relations.get(target.id)
             relationship = relation.relation_type if relation else "\u666e\u901a\u719f\u4eba"
             retrieved = self._original_retrieved_text(source, target)
@@ -881,10 +882,10 @@ class SimulationEngine:
 6. 长度控制在 25 到 80 个汉字。
 
 说话者身份：
-{source.scratch.get_str_iss() if source.scratch else source.profile}
+{source.profile}
 
 对话对象身份：
-{target_profile}
+{target.profile}
 
 两人关系：{relationship}
 当前传播动作：{action_hint}
@@ -905,7 +906,9 @@ class SimulationEngine:
         base_url = LOCAL_API_BASE if USE_LOCAL_MODEL else DEEPSEEK_API_BASE
         model = LOCAL_MODEL_NAME if USE_LOCAL_MODEL else DEEPSEEK_MODEL_NAME
         api_key = LOCAL_API_KEY if USE_LOCAL_MODEL else deepseek_api_key
+        print(f"[LLM API] 调用 DeepSeek: model={model}, base_url={base_url}, api_key_prefix={api_key[:8] if api_key else 'EMPTY'}")
         if not base_url or not model:
+            print("[LLM API] 错误: base_url 或 model 为空")
             return ""
         url = base_url.rstrip("/") + "/chat/completions"
         payload = {
@@ -926,10 +929,14 @@ class SimulationEngine:
             method="POST",
         )
         try:
+            print(f"[LLM API] 发送请求到 {url}")
             with urllib.request.urlopen(request, timeout=35) as response:
                 result = json.loads(response.read().decode("utf-8"))
-            return result["choices"][0]["message"]["content"]
-        except (urllib.error.URLError, urllib.error.HTTPError, KeyError, IndexError, json.JSONDecodeError, TimeoutError):
+            content = result["choices"][0]["message"]["content"]
+            print(f"[LLM API] 响应成功: {content[:60]}...")
+            return content
+        except (urllib.error.URLError, urllib.error.HTTPError, KeyError, IndexError, json.JSONDecodeError, TimeoutError) as e:
+            print(f"[LLM API] 请求失败: {type(e).__name__}: {e}")
             return ""
 
     def _original_retrieved_text(self, source: Agent, target: Agent) -> str:
@@ -968,7 +975,7 @@ class SimulationEngine:
             content = content.strip("\u3002\uff0c\uff1a: ")
             if len(content) > 12:
                 return content[:46]
-        return "\u73b0\u5728\u8bf4\u6cd5\u592a\u591a\uff0c\u5f88\u591a\u7ec6\u8282\u8fd8\u5bf9\u4e0d\u4e0a"
+        return "\u73b0\u5728\u8bf4\u6cd5\u592a\u591a\uff0c\u5f88\u591a\u7ec6\u8282\u8fd8\u5dee\u4e00\u4e2a\u80fd\u88ab\u6838\u5bf9\u7684\u73af\u8282\u3002"
 
     def _dialogue_prefix(self, source: Agent, target: Agent, rel_text: str) -> str:
         relation_words = {
@@ -996,122 +1003,26 @@ class SimulationEngine:
             "\u5468\u5c0f\u827a": "\u6211\u5148\u628a\u770b\u5230\u548c\u542c\u5230\u7684\u8bb0\u4e0b\u6765\uff0c\u4e0d\u60f3\u628a\u522b\u4eba\u7684\u5bb3\u6015\u753b\u6210\u70ed\u95f9",
             "\u5f20\u56fd\u5e86": "\u6211\u8f66\u4e0a\u542c\u4e86\u592a\u591a\u7248\u672c\uff0c\u8d8a\u542c\u8d8a\u89c9\u5f97\u5f97\u628a\u65f6\u95f4\u7ebf\u7406\u6e05",
             "\u8d75\u660e\u8f69": "\u6211\u77e5\u9053\u5927\u5bb6\u5acc\u6d41\u7a0b\u6162\uff0c\u4f46\u4e0d\u628a\u65f6\u95f4\u7ebf\u6838\u5b9e\u6e05\u695a\uff0c\u540e\u9762\u66f4\u6ca1\u6cd5\u8d1f\u8d23",
-            "\u9648\u7acb\u8861": "\u6211\u53ea\u770b\u5355\u636e\u3001\u7559\u6837\u548c\u8fdb\u8d27\u8bb0\u5f55\uff0c\u54ea\u4e00\u73af\u5bf9\u4e0d\u4e0a\u5c31\u4e0d\u80fd\u653e\u8fc7",
+            "\u9648\u7acb\u8861": "\u6211\u53ea\u770b\u5355\u636e\u3001\u7559\u6837\u548c\u8fdb\u8d27\u8bb0\u5f55\uff0c\u54ea\u4e01\u73af\u5bf9\u4e0d\u4e0a\u5c31\u4e0d\u80fd\u653e\u8fc7",
             "\u5b59\u5b81": "\u5bb6\u957f\u5bb3\u6015\u662f\u6b63\u5e38\u7684\uff0c\u4f46\u6211\u4eec\u8981\u628a\u75c7\u72b6\u3001\u5c31\u533b\u548c\u98df\u7269\u7ebf\u7d22\u5206\u5f00",
             "\u5510\u6653\u8212": "\u6211\u5148\u628a\u6bcf\u4e2a\u4eba\u7684\u7591\u95ee\u8bb0\u4e0b\u6765\uff0c\u4e0d\u7136\u4f1a\u8bae\u53ea\u4f1a\u53d8\u6210\u4e92\u76f8\u5435",
         }
         return concern_map.get(agent.name, "\u8fd9\u4ef6\u4e8b\u8fd8\u6709\u5f88\u591a\u6ca1\u8bf4\u6e05\u7684\u5730\u65b9")
 
     def _voice_line(self, source: Agent, target: Agent, action: str, memory_hint: str, concern: str, previous: str) -> str:
-        name = source.name
-        if action == "ignore":
-            return self._silent_line(source, target, concern)
-        style_bank = {
-            "\u9648\u601d\u8fdc": {
-                "share": [f"\u6211\u5728\u60f3\uff0c{memory_hint}\u8fd9\u4e2a\u7247\u6bb5\u4e3a\u4ec0\u4e48\u4f1a\u8ba9\u5927\u5bb6\u8fd9\u4e48\u5feb\u5c31\u76f8\u4fe1\u3002{concern}\u3002"],
-                "question": [f"\u4e3d\u534e\uff0c\u6211\u4e0d\u662f\u5426\u5b9a\u4f60\u542c\u5230\u7684\u8bdd\u3002\u6211\u53ea\u662f\u60f3\u95ee\uff0c\u8fd9\u4e2a\u8bf4\u6cd5\u662f\u4e8b\u5b9e\uff0c\u8fd8\u662f\u5927\u5bb6\u7684\u6050\u60e7\u5728\u4e92\u76f8\u627e\u56de\u58f0\uff1f", f"\u6211\u4eec\u5148\u522b\u628a\u5b83\u53d8\u6210\u7ed3\u8bba\u3002{memory_hint}\u8fd9\u91cc\u9762\u81f3\u5c11\u8fd8\u5dee\u4e00\u4e2a\u80fd\u88ab\u6838\u5bf9\u7684\u73af\u8282\u3002"],
-                "debunk": [f"\u5982\u679c\u6ca1\u6709\u8bc1\u636e\uff0c\u8fd9\u53e5\u8bdd\u53ea\u4f1a\u628a\u7126\u8651\u53d8\u6210\u4e00\u79cd\u66f4\u6709\u6740\u4f24\u529b\u7684\u53d9\u4e8b\u3002\u5148\u505c\u4e00\u4e0b\u3002"],
-            },
-            "\u6797\u5c0f\u96e8": {
-                "share": [f"\u6211\u4eca\u5929\u53c8\u628a\u51e0\u4e2a\u5bb6\u957f\u7684\u8bdd\u5bf9\u4e86\u4e00\u904d\uff0c{memory_hint}\u3002\u6211\u771f\u7684\u60f3\u5e2e\u5b69\u5b50\u5148\u7a33\u4f4f\u3002"],
-                "question": [f"\u8fd9\u4e2a\u6211\u5f97\u518d\u95ee\u4e00\u4e0b\u3002\u4e0d\u662f\u6211\u4e0d\u76f8\u4fe1\u4f60\uff0c\u662f\u6211\u4eec\u73b0\u5728\u6bcf\u53e5\u8bdd\u90fd\u4f1a\u88ab\u5bb6\u957f\u53cd\u590d\u770b\u3002"],
-                "debunk": [f"\u8fd9\u53e5\u5148\u522b\u4f20\uff0c\u771f\u7684\u3002\u73b0\u5728\u5bb6\u957f\u5df2\u7ecf\u591f\u614c\u4e86\uff0c\u6211\u4eec\u4e0d\u80fd\u518d\u628a\u6ca1\u6838\u5b9e\u7684\u8bdd\u63a8\u7ed9\u4ed6\u4eec\u3002"],
-            },
-            "\u5218\u5c0f\u654f": {
-                "share": [f"\u6211\u53ea\u80fd\u5c0f\u58f0\u8bf4\u3002{memory_hint}\u3002\u6211\u4e0d\u77e5\u9053\u8fd9\u7b97\u4e0d\u7b97\u8bc1\u636e\uff0c\u4f46\u6211\u5fc3\u91cc\u4e00\u76f4\u8fc7\u4e0d\u53bb\u3002"],
-                "question": [f"\u5c0f\u96e8\uff0c\u4f60\u80fd\u5148\u522b\u8ddf\u522b\u4eba\u8bf4\u662f\u6211\u95ee\u7684\u5417\uff1f\u6211\u60f3\u786e\u8ba4\u4e00\u4e0b\uff0c{memory_hint}\u8fd9\u4e2a\u7ec6\u8282\u5230\u5e95\u6709\u6ca1\u6709\u4eba\u8bb0\u5f55\u3002"],
-                "debunk": [f"\u8fd9\u4e2a\u4e0d\u5bf9\u3002\u6211\u4e0d\u6562\u8bf4\u592a\u591a\uff0c\u4f46\u8fd9\u53e5\u548c\u6211\u90a3\u5929\u770b\u5230\u7684\u4e0d\u4e00\u6837\u3002"],
-            },
-            "\u674e\u5927\u5f3a": {
-                "share": [f"\u56fd\u5e86\uff0c\u6211\u4eca\u5929\u53c8\u542c\u5230\u4e00\u4e2a\u8bf4\u6cd5\uff0c{memory_hint}\u3002{concern}\u3002", f"\u4f60\u522b\u5acc\u6211\u8bf4\u8bdd\u51b2\uff0c{memory_hint}\u3002\u6211\u73b0\u5728\u5c31\u60f3\u77e5\u9053\u8c01\u80fd\u628a\u8fd9\u4e8b\u8bf4\u6e05\u695a\u3002"],
-                "question": [f"\u4f60\u8fd9\u8bdd\u662f\u542c\u8c01\u8bf4\u7684\uff1f{memory_hint}\u8fd9\u79cd\u8bdd\u522b\u53c8\u8ba9\u5bb6\u957f\u767d\u7b49\u4e00\u573a\u3002"],
-                "debunk": [f"\u5148\u522b\u8f6c\u4e86\uff0c\u6ca1\u6709\u767d\u7eb8\u9ed1\u5b57\u7684\u8bc1\u636e\uff0c\u6211\u4e0d\u8ba4\u3002{concern}\u3002"],
-            },
-            "\u5468\u5c0f\u827a": {
-                "share": [f"\u6211\u521a\u521a\u53ea\u662f\u542c\u5230\u4e00\u70b9\uff1a{memory_hint}\u3002\u6211\u4e0d\u786e\u5b9a\uff0c\u4f46\u8fd9\u4e2a\u753b\u9762\u4e00\u76f4\u5728\u6211\u8111\u5b50\u91cc\u3002"],
-                "question": [f"{target.name}\uff0c\u8fd9\u4e2a\u6765\u6e90\u80fd\u518d\u95ee\u4e00\u4e0b\u5417\uff1f\u6211\u6015\u6211\u4eec\u628a\u5bb3\u6015\u5f53\u6210\u4e86\u4e8b\u5b9e\u3002"],
-                "debunk": [f"\u6211\u5148\u4e0d\u628a\u8fd9\u53e5\u8bdd\u653e\u5230\u753b\u91cc\uff0c\u56e0\u4e3a\u5b83\u8fd8\u6ca1\u6709\u8bc1\u636e\u3002"],
-            },
-            "\u97e9\u5c0f\u96ea": {
-                "share": [f"\u6211\u5728\u73ed\u7ea7\u7fa4\u91cc\u770b\u5230\u4e86\u4e00\u70b9\uff0c{memory_hint}\u3002\u6211\u4e0d\u6562\u8f6c\uff0c\u4f46\u6211\u4e00\u76f4\u5728\u60f3\u4ee5\u524d\u98df\u5802\u7684\u5473\u9053\u3002"],
-                "question": [f"\u8fd9\u4e2a\u771f\u7684\u5417\uff1f\u6211\u4e0d\u60f3\u88ab\u5927\u4eba\u8bf4\u2018\u5c0f\u5b69\u5b50\u522b\u7ba1\u2019\uff0c\u4f46\u6211\u4e5f\u4e0d\u60f3\u628a\u9519\u7684\u8bdd\u53d1\u7ed9\u540c\u5b66\u3002"],
-                "debunk": [f"\u8fd9\u6761\u6211\u4e0d\u8f6c\u3002\u5982\u679c\u662f\u5047\u7684\uff0c\u90a3\u4e9b\u8fd8\u5728\u533b\u9662\u7684\u5c0f\u5b69\u5b50\u4f1a\u66f4\u96be\u8fc7\u5427\u3002"],
-            },
-            "\u5f20\u56fd\u5e86": {
-                "share": [f"\u5927\u5f3a\uff0c\u6211\u8f66\u4e0a\u8fd9\u51e0\u5929\u8f7d\u8fc7\u4e0d\u5c11\u5bb6\u957f\u3002{memory_hint}\u3002\u6211\u4e0d\u6562\u8bf4\u5168\u662f\u771f\u7684\uff0c\u4f46\u5927\u5bb6\u771f\u7684\u90fd\u614c\u4e86\u3002"],
-                "question": [f"\u8fd9\u8bdd\u6211\u5f97\u95ee\u6e05\u695a\uff0c\u662f\u4f60\u4eb2\u773c\u770b\u5230\u7684\uff0c\u8fd8\u662f\u522b\u4eba\u5728\u8f66\u4e0a\u8ddf\u6211\u8bf4\u7684\uff1f\u6211\u73b0\u5728\u4e0d\u6562\u518d\u628a\u6545\u4e8b\u8bb2\u6b6a\u4e86\u3002"],
-                "debunk": [f"\u8fd9\u4e2a\u7248\u672c\u6211\u542c\u8fc7\uff0c\u4f46\u524d\u540e\u5bf9\u4e0d\u4e0a\u3002\u5148\u522b\u5f80\u4e0b\u4f20\uff0c\u4e0d\u7136\u8d8a\u8bb2\u8d8a\u50cf\u771f\u7684\u3002"],
-            },
-            "\u738b\u4e3d\u534e": {
-                "share": [f"\u54ce\u4f60\u542c\u6211\u8bf4\uff0c\u4eca\u5929\u5e97\u91cc\u53c8\u6709\u4eba\u63d0\u5230\uff1a{memory_hint}\u3002\u6211\u73b0\u5728\u771f\u4e0d\u6562\u968f\u4fbf\u63a5\u8bdd\u4e86\u3002"],
-                "question": [f"\u7b49\u7b49\uff0c\u8fd9\u4e2a\u662f\u5bb6\u957f\u8bf4\u7684\uff0c\u8fd8\u662f\u7fa4\u91cc\u8f6c\u7684\uff1f\u6211\u6015\u6211\u4e00\u5f20\u5634\u53c8\u7ed9\u4f20\u5927\u4e86\u3002"],
-                "debunk": [f"\u8fd9\u6761\u5148\u522b\u5728\u6211\u5e97\u91cc\u4f20\uff0c\u6ca1\u6838\u5bf9\u524d\u5c31\u8bf4\u51fa\u53bb\uff0c\u5bb6\u957f\u66f4\u614c\u3002"],
-            },
-            "\u9ad8\u5efa\u56fd": {
-                "share": [f"\u6211\u5c31\u8bf4\u5427\uff0c{memory_hint}\u3002\u6700\u540e\u522b\u53c8\u662f\u51e0\u53e5\u573a\u9762\u8bdd\u628a\u4eba\u6253\u53d1\u4e86\u3002"],
-                "question": [f"\u8fd9\u8bdd\u542c\u7740\u50cf\u771f\u7684\uff0c\u4f46\u54ea\u6765\u7684\uff1f\u522b\u53c8\u662f\u8bc4\u8bba\u533a\u7f16\u51fa\u6765\u9a82\u4eba\u7684\u3002"],
-                "debunk": [f"\u8fd9\u6761\u6211\u5148\u4e0d\u9a82\uff0c\u6ca1\u8bc1\u636e\u9a82\u9519\u4eba\u4e5f\u591f\u6076\u5fc3\u7684\u3002"],
-            },
-            "\u8d75\u660e\u8f69": {
-                "share": [f"\u6211\u5148\u8bf4\u6211\u80fd\u786e\u8ba4\u7684\u90e8\u5206\uff1a{memory_hint}\u3002\u5176\u4ed6\u7ec6\u8282\u8fd8\u8981\u548c\u8bb0\u5f55\u8868\u5bf9\u4e00\u904d\u3002"],
-                "question": [f"\u8fd9\u4e2a\u8bf4\u6cd5\u9700\u8981\u6709\u5bf9\u5e94\u65f6\u95f4\u548c\u8bb0\u5f55\uff0c\u4e0d\u7136\u6211\u4e0d\u80fd\u628a\u5b83\u5199\u8fdb\u7ed3\u8bba\u91cc\u3002"],
-                "debunk": [f"\u8fd9\u6761\u4e0d\u80fd\u518d\u6269\u6563\u3002\u73b0\u5728\u80fd\u8bf4\u7684\u662f\u6838\u67e5\u8303\u56f4\uff0c\u4e0d\u662f\u6700\u7ec8\u5b9a\u6027\u3002"],
-            },
-            "\u9648\u7acb\u8861": {
-                "share": [f"\u6211\u8fd9\u8fb9\u53ea\u770b\u5230\u4e00\u4e2a\u7ebf\u7d22\uff1a{memory_hint}\u3002\u522b\u5148\u731c\uff0c\u5148\u628a\u5355\u636e\u548c\u7559\u6837\u627e\u51fa\u6765\u3002"],
-                "question": [f"\u8fd9\u53e5\u8bdd\u6ca1\u7528\uff0c\u6709\u6ca1\u6709\u8fdb\u8d27\u65f6\u95f4\u3001\u6279\u6b21\u548c\u7559\u6837\uff1f\u6ca1\u6709\u5c31\u53ea\u80fd\u5148\u6302\u8d77\u6765\u3002"],
-                "debunk": [f"\u8fd9\u4e2a\u5224\u65ad\u592a\u65e9\u3002\u6211\u6ca1\u770b\u5230\u68c0\u6d4b\u548c\u7968\u636e\u524d\uff0c\u4e0d\u8ba9\u5b83\u5f53\u7ed3\u8bba\u4f20\u3002"],
-            },
-            "\u5b59\u5b81": {
-                "share": [f"\u6211\u60f3\u5148\u628a\u60c5\u7eea\u653e\u6162\u4e00\u70b9\u3002{memory_hint}\u8fd9\u4e2a\u7ebf\u7d22\u8981\u548c\u75c7\u72b6\u65f6\u95f4\u5bf9\u8d77\u6765\u770b\u3002"],
-                "question": [f"\u8fd9\u4e2a\u8bf4\u6cd5\u5148\u522b\u5413\u5bb6\u957f\u3002\u6211\u4eec\u8981\u95ee\u7684\u662f\uff1a\u8c01\u51fa\u73b0\u75c7\u72b6\uff0c\u4ec0\u4e48\u65f6\u5019\uff0c\u5403\u8fc7\u4ec0\u4e48\u3002"],
-                "debunk": [f"\u8fd9\u6761\u4f20\u6cd5\u4f1a\u5e72\u6270\u5c31\u533b\u548c\u8c03\u67e5\uff0c\u6211\u5efa\u8bae\u5148\u505c\u4e0b\uff0c\u7b49\u533b\u5b66\u548c\u98df\u7269\u7ebf\u7d22\u5bf9\u4e0a\u3002"],
-            },
-            "\u5510\u6653\u8212": {
-                "share": [f"\u6211\u5148\u8bb0\u4e0b\u6765\uff1a{memory_hint}\u3002\u7b49\u4e00\u4e0b\u6211\u4eec\u628a\u5b83\u653e\u5230\u201c\u5f85\u6838\u5b9e\u201d\u90a3\u4e00\u680f\u3002"],
-                "question": [f"\u8fd9\u4e2a\u6211\u5148\u4e0d\u5f53\u7ed3\u8bba\u5199\u3002\u4f60\u80fd\u5e2e\u6211\u8865\u4e00\u4e0b\uff0c\u662f\u8c01\u8bf4\u7684\u3001\u4ec0\u4e48\u65f6\u5019\u8bf4\u7684\u5417\uff1f"],
-                "debunk": [f"\u8fd9\u6761\u6211\u4f1a\u6807\u6ce8\u4e3a\u672a\u6838\u5b9e\u3002\u73b0\u5728\u4e0d\u662f\u538b\u4f4f\u8c01\uff0c\u662f\u522b\u8ba9\u9519\u8bdd\u7ee7\u7eed\u5f80\u5916\u8dd1\u3002"],
-            },
-        }
-        generic = {
-            "share": [f"{memory_hint}\u3002{concern}\uff0c\u6240\u4ee5\u6211\u60f3\u5148\u8ddf\u4f60\u5bf9\u4e00\u4e0b\u3002"],
-            "question": [f"\u6211\u8fd8\u662f\u60f3\u518d\u6838\u4e00\u4e0b\uff1a{memory_hint}\u3002\u8fd9\u4e2a\u6765\u6e90\u80fd\u786e\u5b9a\u5417\uff1f"],
-            "debunk": [f"\u5148\u522b\u628a\u8fd9\u4e2a\u5f53\u7ed3\u8bba\u4f20\u3002{memory_hint}\u8fd8\u9700\u8981\u8bc1\u636e\u3002"],
-        }
-        options = style_bank.get(name, generic).get(action, generic.get(action, generic["share"]))
-        index = self.rng.randrange(len(options))
-        line = options[index]
-        if previous and line[:16] in previous:
-            line = options[(index + 1) % len(options)]
-        return line
+        return ""
 
     def _silent_line(self, source: Agent, target: Agent, concern: str) -> str:
-        if source.name in {"\u5218\u5c0f\u654f", "\u5468\u5c0f\u827a", "\u97e9\u5c0f\u96ea"}:
-            return f"\u8bdd\u5230\u5634\u8fb9\u505c\u4e86\u4e00\u4e0b\uff1a\u201c\u6211\u5148\u4e0d\u8bf4\u4e86\uff0c\u6211\u6015\u8bf4\u9519\u3002\u201d"
-        return f"\u6c89\u9ed8\u4e86\u51e0\u79d2\uff1a\u201c{concern}\u3002\u4f46\u8fd9\u53e5\u8bdd\u6211\u5148\u4e0d\u5f80\u5916\u4f20\u3002\u201d"
+        return "\u8bdd\u5230\u5634\u8fb9\u505c\u4e86\u4e00\u4e0b\uff1a\u201c\u6211\u5148\u4e0d\u8bf4\u4e86\uff0c\u6211\u6015\u8bf4\u9519\u3002\u201d"
 
     def _generate_reply(self, source: Agent, target: Agent, previous_content: str) -> str:
         llm_line = self._generate_dialogue_with_llm(source, target, "reply")
         if llm_line:
             return llm_line
-        concern = self._agent_concern(source)
-        relation = source.relations.get(target.id)
-        rel_text = relation.relation_type if relation else "\u719f\u4eba"
-        prefix = self._dialogue_prefix(source, target, rel_text)
-        reply_map = {
-            "\u6797\u5c0f\u96e8": [f"\u6211\u77e5\u9053\u4f60\u4eec\u6025\uff0c\u6211\u4e5f\u6025\u3002\u4f46\u73b0\u5728\u5b69\u5b50\u7684\u60c5\u51b5\u3001\u533b\u9662\u7684\u8bdd\u3001\u56ed\u91cc\u7684\u8bb0\u5f55\uff0c\u4e00\u6761\u90fd\u4e0d\u80fd\u4e71\u3002", f"\u4f60\u8fd9\u6837\u95ee\u6211\u4e0d\u8eb2\uff0c\u53ea\u662f\u6709\u4e9b\u4e8b\u6211\u5f97\u5148\u786e\u8ba4\uff0c\u4e0d\u7136\u8bf4\u51fa\u53bb\u53cd\u800c\u5bb3\u4e86\u5927\u5bb6\u3002"],
-            "\u5218\u5c0f\u654f": [f"\u6211\u4e0d\u662f\u4e0d\u60f3\u8bf4\u3002\u6211\u662f\u771f\u7684\u6015\u6211\u8bf4\u5b8c\uff0c\u4e8b\u60c5\u5c31\u518d\u4e5f\u6536\u4e0d\u56de\u6765\u4e86\u3002", f"\u5c0f\u96e8\uff0c\u6211\u5fc3\u91cc\u4e00\u76f4\u5361\u7740\u90a3\u5929\u7684\u753b\u9762\uff0c\u4f46\u6211\u73b0\u5728\u8fd8\u6ca1\u6709\u52c7\u6c14\u5f53\u7740\u6240\u6709\u4eba\u8bb2\u3002"],
-            "\u9648\u601d\u8fdc": [f"\u6211\u4e0d\u60f3\u628a\u8fd9\u4ef6\u4e8b\u53d8\u6210\u53c8\u4e00\u6b21\u4e92\u76f8\u5b9a\u7f6a\u3002\u6211\u66f4\u60f3\u77e5\u9053\uff0c\u54ea\u4e2a\u73af\u8282\u5f00\u59cb\u628a\u5b69\u5b50\u653e\u5230\u4e86\u540e\u9762\u3002"],
-            "\u5f20\u56fd\u5e86": [f"\u6211\u8f66\u4e0a\u8fd9\u51e0\u5929\u542c\u5230\u7684\u7248\u672c\u592a\u591a\u4e86\u3002\u8bf4\u771f\u7684\uff0c\u6211\u73b0\u5728\u8fde\u8bb2\u6545\u4e8b\u90fd\u4e0d\u6562\u6dfb\u6cb9\u4e86\u3002"],
-            "\u97e9\u5c0f\u96ea": [f"\u6211\u4e0d\u77e5\u9053\u8be5\u4e0d\u8be5\u8bf4\uff0c\u4f46\u6211\u542c\u5230\u2018\u98df\u5802\u2019\u4e24\u4e2a\u5b57\u7684\u65f6\u5019\uff0c\u8111\u5b50\u91cc\u4e00\u4e0b\u5c31\u60f3\u5230\u4ee5\u524d\u6392\u961f\u5403\u996d\u7684\u6837\u5b50\u3002"],
-            "\u5510\u6653\u8212": [f"\u597d\uff0c\u8fd9\u53e5\u6211\u5148\u8bb0\u5230\u2018\u5f85\u6838\u5b9e\u2019\u91cc\u3002\u4f60\u4eec\u5148\u522b\u4e92\u76f8\u9876\uff0c\u6211\u4eec\u628a\u4e8b\u60c5\u4e00\u6761\u6761\u62c6\u5f00\u3002"],
-        }
-        options = reply_map.get(source.name)
-        if options:
-            return prefix + options[self.rng.randrange(len(options))]
-        if source.skepticism > 0.5:
-            return prefix + f"\u6211\u5148\u63a5\u4f4f\u8fd9\u53e5\u8bdd\uff0c\u4f46\u6211\u9700\u8981\u770b\u5230\u6765\u6e90\u3002{concern}\u3002"
-        return prefix + f"\u6211\u660e\u767d\u4f60\u7684\u610f\u601d\u3002{concern}\uff0c\u6240\u4ee5\u6211\u4e0d\u60f3\u968f\u4fbf\u628a\u8bdd\u8bf4\u6b7b\u3002"
+        raise RuntimeError(
+            f"[LLM未响应] {source.name} 回复 {target.name} 失败。"
+            "请检查 DEEPSEEK_API_KEY 是否有效、网络是否可达。仿真已终止。"
+        )
 
     def _record_dialogue(self, source, target, action, content):
         row = {"id": str(uuid.uuid4()), "timeStep": self.time_step, "agentId": source.id, "agentName": source.name, "personaType": source.persona_type, "status": STATE_LABELS[source.state], "content": content, "sentiment": "\u4e2d\u6027", "emotionIntensity": round((source.arousal + source.anxiety + source.anger) / 3, 3), "stance": round(source.stance, 3), "osi": round(source.osi, 3), "cpi": round(source.cpi, 3), "actionType": action, "receivers": [target.id], "receiverNames": [target.name], "includedInReport": action != "ignore", "recordType": "dialogue"}

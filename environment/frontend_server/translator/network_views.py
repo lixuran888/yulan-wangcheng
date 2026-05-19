@@ -34,7 +34,15 @@ def reset_simulation(request):
 def step_simulation(request):
     payload = _json_payload(request)
     intervention = payload.get("intervention")
-    return JsonResponse(_ENGINE.step(intervention=intervention), json_dumps_params={"ensure_ascii": False})
+    try:
+        return JsonResponse(_ENGINE.step(intervention=intervention), json_dumps_params={"ensure_ascii": False})
+    except Exception as e:
+        import traceback
+        return JsonResponse(
+            {"error": str(e), "traceback": traceback.format_exc()},
+            status=500,
+            json_dumps_params={"ensure_ascii": False},
+        )
 
 
 @csrf_exempt
